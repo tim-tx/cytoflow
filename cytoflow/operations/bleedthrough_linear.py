@@ -35,6 +35,9 @@ import cytoflow.utility as util
 from .i_operation import IOperation
 from .import_op import Tube, ImportOp, check_tube
 
+from pandas import DataFrame
+from ..experiment import Experiment
+
 @provides(IOperation)
 class BleedthroughLinearOp(HasStrictTraits):
     """
@@ -139,6 +142,7 @@ class BleedthroughLinearOp(HasStrictTraits):
     name = Constant("Bleedthrough")
 
     controls = Dict(Str, File)
+    control_frames = Dict(Str, Instance(DataFrame))
     spillover = Dict(Tuple(Str, Str), Float)
     
     def estimate(self, experiment, subset = None): 
@@ -148,27 +152,60 @@ class BleedthroughLinearOp(HasStrictTraits):
         if experiment is None:
             raise util.CytoflowOpError('experiment', "No experiment specified")
         
-        channels = list(self.controls.keys())
+        if ( self.control_frames != {} ):
+            channels = list(self.control_frames.keys())
+        else:
+            channels = list(self.controls.keys())
 
-        if len(channels) < 2:
+            if len(channels) < 2:
             raise util.CytoflowOpError('channels',
                                        "Need at least two channels to correct bleedthrough.")
 
         # make sure the control files exist
-        for channel in channels:
-            if not os.path.isfile(self.controls[channel]):
-                raise util.CytoflowOpError('channels',
-                                           "Can't find file {0} for channel {1}."
-                                           .format(self.controls[channel], channel))
-                
+        if ( self.controls != {} ):
+            for channel in channels:
+                if not os.path.isfile(self.controls[channel]):
+                    raise util.CytoflowOpError('channels',
+                                               "Can't find file {0} for channel {1}."
+                                               .format(self.controls[channel], channel))
+
         for channel in channels:
             
-            # make a little Experiment
-            check_tube(self.controls[channel], experiment)
-            tube_exp = ImportOp(tubes = [Tube(file = self.controls[channel])],
-                                channels = {experiment.metadata[c]["fcs_name"] : c for c in experiment.channels},
-                                name_metadata = experiment.metadata['name_metadata']).apply()
-            
+            if ( self.controls != {} ):
+                # make a little Experiment
+                check_tube(self.controls[channel], experiment)
+                tube_exp = ImportOp(tubes = [Tube(file = self.controls[channel])],
+                                    channels = {experiment.metadata[c]["fcs_name"] : c for c in experiment.channels},
+                                    name_metadata = experiment.metadata['name_metadata']).apply()
+            else:
+                # caveat: make sure experiment channel names map to dataframe channels
+                tube_exp = Experiment()
+                tube_exp.metadata["name_metadata"] = experiment.metadata['name_metadata']
+                arg_channels = {experiment.metadata[c]["fcs_name"] : c for c in experiment.channels}
+                for old_name, new_name in arg_channels.items():
+                    if old_name != new_name and new_name != util.sanitize_identifier(new_name):
+                        raise util.CytoflowOpError("Channel name {} must be a "
+                                                   "valid Python identifier."
+                                                   .format(new_name))
+
+                chans = list(arg_channels.keys())
+
+                for chan in chans:
+                    tube_exp.add_channel(chan)
+                    tube_exp.metadata[chan]["fcs_name"] = chan
+
+                tube_exp.add_events(self.control_frames[channel][chans], {})
+
+                for chan in chans:
+                    if chan in arg_channels:
+                        new_name = arg_channels[chan]
+                        if chan == new_name:
+                            continue
+                        tube_exp.data.rename(columns = {chan : new_name}, inplace = True)
+                        tube_exp.metadata[new_name] = tube_exp.metadata[chan]
+                        tube_exp.metadata[new_name]["fcs_name"] = chan
+                        del tube_exp.metadata[chan]
+
             # apply previous operations
             for op in experiment.history:
                 tube_exp = op.apply(tube_exp)
@@ -308,7 +345,12 @@ class BleedthroughLinearOp(HasStrictTraits):
         # the completely arbitrary ordering of the channels
         channels = list(set([x for (x, _) in list(self.spillover.keys())]))
         
-        if set(self.controls.keys()) != set(channels):
+        if ( self.control_frames != {} ):
+            mykeys = self.control_frames.keys()
+        else:
+            mykeys = self.controls.keys()
+
+            if set(mykeys) != set(channels):
             raise util.CytoflowOpError('controls',
                                        "Must have both the controls and bleedthrough to plot")
 
@@ -350,7 +392,7 @@ class BleedthroughLinearDiagnostic(HasStrictTraits):
             raise util.CytoflowViewError('experiment',
                                          "No experiment specified")
 
-        if not self.op.controls:
+        if not self.op.controls and not self.op.control_frames:
             raise util.CytoflowViewError('op',
                                          "No controls specified")
         
@@ -372,11 +414,41 @@ class BleedthroughLinearDiagnostic(HasStrictTraits):
             for to_idx, to_channel in enumerate(channels):
                 if from_idx == to_idx:
                     continue
-                
-                check_tube(self.op.controls[from_channel], experiment)
-                tube_exp = ImportOp(tubes = [Tube(file = self.op.controls[from_channel])],
-                                    channels = {experiment.metadata[c]["fcs_name"] : c for c in experiment.channels},
-                                    name_metadata = experiment.metadata['name_metadata']).apply()
+
+                if ( self.op.controls != {} ):
+                    # make a little Experiment
+                    check_tube(self.op.controls[from_channel], experiment)
+                    tube_exp = ImportOp(tubes = [Tube(file = self.op.controls[from_channel])],
+                                        channels = {experiment.metadata[c]["fcs_name"] : c for c in experiment.channels},
+                                        name_metadata = experiment.metadata['name_metadata']).apply()
+                else:
+                    # caveat: make sure experiment channel names map to dataframe channels
+                    tube_exp = Experiment()
+                    tube_exp.metadata["name_metadata"] = experiment.metadata['name_metadata']
+                    arg_channels = {experiment.metadata[c]["fcs_name"] : c for c in experiment.channels}
+                    for old_name, new_name in arg_channels.items():
+                        if old_name != new_name and new_name != util.sanitize_identifier(new_name):
+                            raise util.CytoflowOpError("Channel name {} must be a "
+                                                       "valid Python identifier."
+                                                       .format(new_name))
+
+                    chans = list(arg_channels.keys())
+
+                    for chan in chans:
+                        tube_exp.add_channel(chan)
+                        tube_exp.metadata[chan]["fcs_name"] = chan
+
+                    tube_exp.add_events(self.op.control_frames[from_channel][chans], {})
+
+                    for chan in chans:
+                        if chan in arg_channels:
+                            new_name = arg_channels[chan]
+                            if chan == new_name:
+                                continue
+                            tube_exp.data.rename(columns = {chan : new_name}, inplace = True)
+                            tube_exp.metadata[new_name] = tube_exp.metadata[chan]
+                            tube_exp.metadata[new_name]["fcs_name"] = chan
+                            del tube_exp.metadata[chan]
                 
                 # apply previous operations
                 for op in experiment.history:

@@ -32,6 +32,9 @@ import cytoflow.utility as util
 from .i_operation import IOperation
 from .import_op import Tube, ImportOp, check_tube
 
+from pandas import DataFrame
+from ..experiment import Experiment
+
 @provides(IOperation)
 class AutofluorescenceOp(HasStrictTraits):
     """
@@ -110,6 +113,7 @@ class AutofluorescenceOp(HasStrictTraits):
     name = Constant("Autofluorescence")
     channels = List(Str)
     blank_file = File(exists = True)
+    blank_frame = Instance(DataFrame)
 
     _af_median = Dict(Str, CFloat, transient = True)
     _af_stdev = Dict(Str, CFloat, transient = True)
@@ -143,12 +147,41 @@ class AutofluorescenceOp(HasStrictTraits):
 
         # don't have to validate that blank_file exists; should crap out on 
         # trying to set a bad value
-        
+        if ( self.blank_file != '' ):
         # make a little Experiment
-        check_tube(self.blank_file, experiment)
-        blank_exp = ImportOp(tubes = [Tube(file = self.blank_file)], 
-                             channels = {experiment.metadata[c]["fcs_name"] : c for c in experiment.channels},
-                             name_metadata = experiment.metadata['name_metadata']).apply()
+            check_tube(self.blank_file, experiment)
+            blank_exp = ImportOp(tubes = [Tube(file = self.blank_file)], 
+                                 channels = {experiment.metadata[c]["fcs_name"] : c for c in experiment.channels},
+                                 name_metadata = experiment.metadata['name_metadata']).apply()
+        else:
+            # caveat: make sure experiment channel names map to dataframe channels
+            blank_exp = Experiment()
+            blank_exp.metadata["name_metadata"] = experiment.metadata['name_metadata']
+            arg_channels = {experiment.metadata[c]["fcs_name"] : c for c in experiment.channels}
+            for old_name, new_name in arg_channels.items():
+                if old_name != new_name and new_name != util.sanitize_identifier(new_name):
+                    raise util.CytoflowOpError("Channel name {} must be a "
+                                               "valid Python identifier."
+                                               .format(new_name))
+
+            channels = list(arg_channels.keys())
+
+            for channel in channels:
+                blank_exp.add_channel(channel)
+                blank_exp.metadata[channel]["fcs_name"] = channel
+
+            blank_exp.add_events(self.blank_frame[channels], {})
+
+            for channel in channels:
+                if channel in arg_channels:
+                    new_name = arg_channels[channel]
+                    if channel == new_name:
+                        continue
+                    blank_exp.data.rename(columns = {channel : new_name}, inplace = True)
+                    blank_exp.metadata[new_name] = blank_exp.metadata[channel]
+                    blank_exp.metadata[new_name]["fcs_name"] = channel
+                    del blank_exp.metadata[channel]
+
         
         # apply previous operations
         for op in experiment.history:
@@ -316,10 +349,45 @@ class AutofluorescenceDiagnosticView(HasStrictTraits):
            
         # make a little Experiment
         try:
-            check_tube(self.op.blank_file, experiment)
-            blank_exp = ImportOp(tubes = [Tube(file = self.op.blank_file)], 
-                                 channels = {experiment.metadata[c]["fcs_name"] : c for c in experiment.channels},
-                                 name_metadata = experiment.metadata['name_metadata']).apply()
+            if ( self.op.blank_file != '' ):
+                # make a little Experiment
+                check_tube(self.op.blank_file, experiment)
+                blank_exp = ImportOp(tubes = [Tube(file = self.op.blank_file)], 
+                                     channels = {experiment.metadata[c]["fcs_name"] : c for c in experiment.channels},
+                                     name_metadata = experiment.metadata['name_metadata']).apply()
+            else:
+                # caveat: make sure experiment channel names map to dataframe channels
+                blank_exp = Experiment()
+                blank_exp.metadata["name_metadata"] = experiment.metadata['name_metadata']
+                arg_channels = {experiment.metadata[c]["fcs_name"] : c for c in experiment.channels}
+                for old_name, new_name in arg_channels.items():
+                    if old_name != new_name and new_name != util.sanitize_identifier(new_name):
+                        raise util.CytoflowOpError("Channel name {} must be a "
+                                                   "valid Python identifier."
+                                                   .format(new_name))
+
+                channels = list(arg_channels.keys())
+
+                for channel in channels:
+                    blank_exp.add_channel(channel)
+                    blank_exp.metadata[channel]["fcs_name"] = channel
+
+                blank_exp.add_events(self.op.blank_frame[channels], {})
+
+                for channel in channels:
+                    if channel in arg_channels:
+                        new_name = arg_channels[channel]
+                        if channel == new_name:
+                            continue
+                        blank_exp.data.rename(columns = {channel : new_name}, inplace = True)
+                        blank_exp.metadata[new_name] = blank_exp.metadata[channel]
+                        blank_exp.metadata[new_name]["fcs_name"] = channel
+                        del blank_exp.metadata[channel]
+
+                # check_tube(self.op.blank_file, experiment)
+                # blank_exp = ImportOp(tubes = [Tube(file = self.op.blank_file)], 
+                #                      channels = {experiment.metadata[c]["fcs_name"] : c for c in experiment.channels},
+                #                      name_metadata = experiment.metadata['name_metadata']).apply()
         except util.CytoflowOpError as e:
             raise util.CytoflowViewError('op', e.__str__()) from e
         
