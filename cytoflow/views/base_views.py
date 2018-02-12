@@ -149,9 +149,15 @@ class BaseView(HasStrictTraits):
         
         for ax in g.axes.flatten():
             if xscale:
-                ax.set_xscale(xscale.name, **xscale.mpl_params) 
+                params = xscale.mpl_params
+                if 'nonposy' in params:
+                    params.pop('nonposy')
+                ax.set_xscale(xscale.name, **params) 
             if yscale:
-                ax.set_yscale(yscale.name, **yscale.mpl_params)
+                params = xscale.mpl_params
+                if 'nonposx' in params:
+                    params.pop('nonposx')
+                ax.set_yscale(yscale.name, **params)
 
         # if we are sharing x axes, make sure the x scale is the same for each
         if sharex:
