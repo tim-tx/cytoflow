@@ -16,6 +16,11 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+# check python version
+import sys
+if sys.version_info < (3, 4):
+    raise Exception("Cytoflow requires Python 3.4 or later")
+
 # suppress meaningless warnings from seaborn
 import warnings
 warnings.filterwarnings('ignore', '.*IPython widgets are experimental.*')
@@ -47,6 +52,9 @@ from .operations.gaussian_2d import GaussianMixture2DOp
 from .operations.gaussian import GaussianMixtureOp
 from .operations.kmeans import KMeansOp
 from .operations.flowpeaks import FlowPeaksOp
+from .operations.pca import PCAOp
+
+# channels
 from .operations.channel_stat import ChannelStatisticOp
 from .operations.frame_stat import FrameStatisticOp
 from .operations.xform_stat import TransformStatisticOp
@@ -68,6 +76,10 @@ from .views.kde_2d import Kde2DView
 from .views.histogram_2d import Histogram2DView
 from .views.violin import ViolinPlotView
 from .views.table import TableView
+from .views.radviz import RadvizView
+from .views.parallel_coords import ParallelCoordinatesView
+
+from .views.export_fcs import ExportFCS
 
 # util
 from .utility.util_functions import (geom_mean, geom_sd, geom_sd_range,
@@ -81,4 +93,4 @@ try:
     cf_cwd =  os.path.dirname(__file__)
     __version__ = subprocess.check_output(["git", "describe", "--always"], cwd = cf_cwd).rstrip().decode("utf-8")
 except (subprocess.CalledProcessError, OSError):
-    __version__ = "0.5.2"
+    __version__ = "0.8.0"

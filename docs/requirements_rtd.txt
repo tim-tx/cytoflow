@@ -1,5 +1,5 @@
 mock
-pandas
+pandas>=0.20
 bottleneck
 numpy
 numexpr
@@ -12,3 +12,4 @@ nbformat
 python-dateutil
 statsmodels
 fcsparser
+fcswrite

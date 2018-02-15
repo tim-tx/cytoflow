@@ -39,11 +39,6 @@ which the event is located.
 
     The scale to apply to the channel before binning.
     
-.. object:: Num Bins
-
-    How many (equi-spaced) bins to create?  Must set either **Num Bins** or
-    **Bin Width**.  If both are set, **Num Bins** takes precedence.
-    
 .. object:: Bin Width
 
     How wide should each bin be?  Can only set if **Scale** is *linear* or
@@ -67,24 +62,23 @@ which the event is located.
     bin_op.default_view().plot(ex2) 
 '''
 
-import random, string, warnings
-
 from traitsui.api import View, Item, EnumEditor, Controller, VGroup, TextEditor
 from envisage.api import Plugin, contributes_to
-from traits.api import provides, Callable, Str, Instance
+from traits.api import provides, Callable, Str, Instance, DelegatesTo
 from pyface.api import ImageResource
 
 from cytoflow.operations import IOperation
 from cytoflow.operations.binning import BinningOp, BinningView
-from cytoflow.views.histogram import HistogramView
 from cytoflow.views.i_selectionview import IView
-import cytoflow.utility as util
 
 from cytoflowgui.view_plugins.i_view_plugin import ViewHandlerMixin, PluginViewMixin
 from cytoflowgui.op_plugins import IOperationPlugin, OpHandlerMixin, OP_PLUGIN_EXT, shared_op_traits
 from cytoflowgui.subset import SubsetListEditor
 from cytoflowgui.color_text_editor import ColorTextEditor
 from cytoflowgui.op_plugins.i_op_plugin import PluginOpMixin, PluginHelpMixin
+from cytoflowgui.serialization import camel_registry, traits_repr, traits_str, dedent
+
+BinningOp.__repr__ = traits_repr
 
 class BinningHandler(Controller, OpHandlerMixin):
     def default_traits_view(self):
@@ -93,10 +87,8 @@ class BinningHandler(Controller, OpHandlerMixin):
                     Item('channel',
                          editor=EnumEditor(name='context.previous_wi.channels'),
                          label = "Channel"),
-                    Item('scale'),
-                    Item('num_bins', 
-                         editor = TextEditor(auto_set = False),
-                         label = "Num Bins"),
+                    Item('scale',
+                         editor = EnumEditor(values = ['linear', 'log'])),
                     Item('bin_width',
                          editor = TextEditor(auto_set = False),
                          label = "Bin Width"),
@@ -107,6 +99,19 @@ class BinningPluginOp(PluginOpMixin, BinningOp):
     
     def default_view(self, **kwargs):
         return BinningPluginView(op = self, **kwargs)
+    
+    def get_notebook_code(self, idx):
+        op = BinningOp()
+        op.copy_traits(self, op.copyable_trait_names())
+
+        return dedent("""
+        op_{idx} = {repr}
+                
+        ex_{idx} = op_{idx}.apply(ex_{prev_idx})
+        """
+        .format(repr = repr(op),
+                idx = idx,
+                prev_idx = idx - 1))
 
 class BinningViewHandler(Controller, ViewHandlerMixin):
     def default_traits_view(self):
@@ -139,31 +144,23 @@ class BinningPluginView(PluginViewMixin, BinningView):
     handler_factory = Callable(BinningViewHandler)
     op = Instance(IOperation, fixed = True)
     huefacet = Str(status = True)
-    huescale = util.ScaleEnum(status = True)
+    huescale = DelegatesTo('op', 'scale', status = True)
     
     def plot_wi(self, wi):
-        self.plot(wi.previous_wi.result)
-
-    def plot(self, experiment, **kwargs):
-    
-        if self.op.name:
-            op = self.op
-            self.huefacet = op.name
-            self.huescale = op.scale
-            legend = True
+        if wi.result is not None:
+            self.plot(wi.result)
         else:
-            op = self.op.clone_traits()
-            op.name = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(6))
-            self.huefacet = op.name
-            legend = False      
-
-        try:
-            experiment = op.apply(experiment)
-        except util.CytoflowOpError as e:
-            warnings.warn(e.__str__(), util.CytoflowViewWarning)
-            self.huefacet = ""
+            self.plot(wi.previous_wi.result)
+            
+    def get_notebook_code(self, idx):
+        view = BinningView()
+        view.copy_traits(self, view.copyable_trait_names())
         
-        HistogramView.plot(self, experiment, legend = legend, **kwargs)
+        return dedent("""
+        op_{idx}.default_view({traits}).plot(ex_{idx})
+        """
+        .format(idx = idx,
+                traits = traits_str(view)))
 
 
 @provides(IOperationPlugin)
@@ -185,3 +182,24 @@ class BinningPlugin(Plugin, PluginHelpMixin):
     def get_plugin(self):
         return self
     
+### Serialization
+@camel_registry.dumper(BinningPluginOp, 'binning', version = 1)
+def _dump(op):
+    return dict(name = op.name,
+                channel = op.channel,
+                scale = op.scale,
+                bin_width = op.bin_width)
+    
+@camel_registry.loader('binning', version = 1)
+def _load(data, version):
+    return BinningPluginOp(**data)
+
+@camel_registry.dumper(BinningPluginView, 'binning-view', version = 1)
+def _dump_view(view):
+    return dict(op = view.op,
+                subset_list = view.subset_list)
+
+@camel_registry.loader('binning-view', version = 1)
+def _load_view(data, version):
+    return BinningPluginView(**data)
+

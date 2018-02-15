@@ -90,6 +90,10 @@ from cytoflowgui.color_text_editor import ColorTextEditor
 from cytoflowgui.ext_enum_editor import ExtendableEnumEditor
 from cytoflowgui.view_plugins.i_view_plugin \
     import IViewPlugin, VIEW_PLUGIN_EXT, ViewHandlerMixin, PluginViewMixin, PluginHelpMixin
+from cytoflowgui.serialization import camel_registry, traits_repr, dedent
+from cytoflowgui.util import IterWrapper
+
+HistogramView.__repr__ = traits_repr
     
 class HistogramHandler(ViewHandlerMixin, Controller):
 
@@ -149,7 +153,7 @@ class HistogramPluginView(PluginViewMixin, HistogramView):
             raise util.CytoflowViewError("Plot facet {0} not in the experiment"
                                     .format(self.huefacet))
         values = np.sort(pd.unique(wi.result[self.plotfacet]))
-        return iter(values)
+        return IterWrapper(iter(values), [self.plotfacet])
     
     def plot(self, experiment, plot_name = None, **kwargs):
         
@@ -160,9 +164,20 @@ class HistogramPluginView(PluginViewMixin, HistogramView):
             experiment = experiment.subset(self.plotfacet, plot_name)
 
         HistogramView.plot(self, experiment, **kwargs)
-        
-        if self.plotfacet and plot_name is not None:
-            plt.title("{0} = {1}".format(self.plotfacet, plot_name))
+#          
+#         if self.plotfacet and plot_name is not None:
+#             plt.title("{0} = {1}".format(self.plotfacet, plot_name))
+            
+    def get_notebook_code(self, idx):
+        view = HistogramView()
+        view.copy_traits(self, view.copyable_trait_names())
+
+        return dedent("""
+        {repr}.plot(ex_{idx}{plot})
+        """
+        .format(repr = repr(view),
+                idx = idx,
+                plot = ", plot_name = " + repr(self.current_plot) if self.plot_names else ""))
 
 @provides(IViewPlugin)
 class HistogramPlugin(Plugin, PluginHelpMixin):
@@ -180,3 +195,18 @@ class HistogramPlugin(Plugin, PluginHelpMixin):
     @contributes_to(VIEW_PLUGIN_EXT)
     def get_plugin(self):
         return self
+    
+@camel_registry.dumper(HistogramPluginView, 'histogram', version = 1)
+def _dump(view):
+    return dict(channel = view.channel,
+                scale = view.scale,
+                xfacet = view.xfacet,
+                yfacet = view.yfacet,
+                huefacet = view.huefacet,
+                huescale = view.huescale,
+                plotfacet = view.plotfacet,
+                subset_list = view.subset_list)
+    
+@camel_registry.loader('histogram', version = 1)
+def _load(data, version):
+    return HistogramPluginView(**data)

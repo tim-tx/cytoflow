@@ -22,6 +22,7 @@ cytoflow.experiment
 '''
 
 import pandas as pd
+from pandas.api.types import CategoricalDtype, is_categorical_dtype
 from traits.api import (HasStrictTraits, Dict, List, Instance, Str, Any,
                        Property, Tuple)
 
@@ -173,6 +174,8 @@ class Experiment(HasStrictTraits):
      
     def __setitem__(self, key, value):
         """Override __setitem__ so we can assign columns like ex.column = ..."""
+        if key in self.data:
+            self.data.drop(key, axis = 'columns', inplace = True)
         return self.data.__setitem__(key, value)
     
     def __len__(self):
@@ -504,6 +507,9 @@ class Experiment(HasStrictTraits):
         
         for meta_name, meta_value in conditions.items():
             meta_type = self.conditions[meta_name].dtype
+            
+            if is_categorical_dtype(meta_type):
+                meta_type = CategoricalDtype([meta_value])
 
             new_data[meta_name] = \
                 pd.Series(data = [meta_value] * len(new_data),
@@ -511,7 +517,7 @@ class Experiment(HasStrictTraits):
                           dtype = meta_type)
             
             # if we're categorical, merge the categories
-            if meta_type.name == "category" and meta_name in self.data:
+            if is_categorical_dtype(meta_type) and meta_name in self.data:
                 cats = set(self.data[meta_name].cat.categories) | set(new_data[meta_name].cat.categories)
                 self.data[meta_name] = self.data[meta_name].cat.set_categories(cats)
                 new_data[meta_name] = new_data[meta_name].cat.set_categories(cats)

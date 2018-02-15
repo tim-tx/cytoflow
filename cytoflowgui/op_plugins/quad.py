@@ -87,7 +87,7 @@ intersection to be.  Creates a new metadata **Name**, with values ``name_1``,
     qv.plot(ex)
 '''
 
-from traits.api import provides, Callable, Instance, Str, DelegatesTo
+from traits.api import provides, Callable, Instance, Str, DelegatesTo, on_trait_change
 from traitsui.api import View, Item, EnumEditor, Controller, VGroup, TextEditor
 from envisage.api import Plugin, contributes_to
 from pyface.api import ImageResource
@@ -102,6 +102,9 @@ from cytoflowgui.subset import SubsetListEditor
 from cytoflowgui.color_text_editor import ColorTextEditor
 from cytoflowgui.ext_enum_editor import ExtendableEnumEditor
 from cytoflowgui.workflow import Changed
+from cytoflowgui.serialization import camel_registry, traits_repr, traits_str, dedent
+
+QuadOp.__repr__ = traits_repr
 
 class QuadHandler(OpHandlerMixin, Controller):
     def default_traits_view(self):
@@ -169,7 +172,7 @@ class QuadSelectionView(PluginViewMixin, QuadSelection):
 
     name = Str
     
-    def should_plot(self, changed):
+    def should_plot(self, changed, payload):
         if changed == Changed.PREV_RESULT or changed == Changed.VIEW:
             return True
         else:
@@ -177,12 +180,35 @@ class QuadSelectionView(PluginViewMixin, QuadSelection):
         
     def plot_wi(self, wi):        
         self.plot(wi.previous_wi.result)
+        
+    def get_notebook_code(self, idx):
+        view = QuadSelection()
+        view.copy_traits(self, view.copyable_trait_names())
+        return dedent("""
+        op_{idx}.default_view({traits}).plot(ex_{prev_idx})
+        """
+        .format(idx = idx, 
+                traits = traits_str(view),
+                prev_idx = idx - 1))
     
 class QuadPluginOp(QuadOp, PluginOpMixin):
     handler_factory = Callable(QuadHandler, transient = True)
-     
+
     def default_view(self, **kwargs):
         return QuadSelectionView(op = self, **kwargs)
+    
+    def get_notebook_code(self, idx):
+        op = QuadOp()
+        op.copy_traits(self, op.copyable_trait_names())
+
+        return dedent("""
+        op_{idx} = {repr}
+                
+        ex_{idx} = op_{idx}.apply(ex_{prev_idx})
+        """
+        .format(repr = repr(op),
+                idx = idx,
+                prev_idx = idx - 1))
 
 @provides(IOperationPlugin)
 class QuadPlugin(Plugin, PluginHelpMixin): 
@@ -203,3 +229,27 @@ class QuadPlugin(Plugin, PluginHelpMixin):
     def get_plugin(self):
         return self
     
+### Serialization
+@camel_registry.dumper(QuadPluginOp, 'quad', version = 1)
+def _dump(op):
+    return dict(name = op.name,
+                xchannel = op.xchannel,
+                xthreshold = op.xthreshold,
+                ychannel = op.ychannel,
+                ythreshold = op.ythreshold)
+    
+@camel_registry.loader('quad', version = 1)
+def _load(data, version):
+    return QuadPluginOp(**data)
+
+@camel_registry.dumper(QuadSelectionView, 'quad-view', version = 1)
+def _dump_view(view):
+    return dict(op = view.op,
+                xscale = view.xscale,
+                yscale = view.yscale,
+                huefacet = view.huefacet,
+                subset_list = view.subset_list)
+    
+@camel_registry.loader('quad-view', version = 1)
+def _load_view(data, version):
+    return QuadSelectionView(**data)

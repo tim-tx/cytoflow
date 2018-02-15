@@ -136,6 +136,8 @@ class DensityView(Base2DView):
 
         bad_color = kwargs.pop('bad_color', None)
         if bad_color is not None:
+            kwargs['cmap'].set_bad(color = bad_color)
+        else:
             kwargs['cmap'].set_bad(color = kwargs['cmap'](0.0))
             
         gridsize = kwargs.pop('gridsize', 50)
@@ -154,7 +156,7 @@ class DensityView(Base2DView):
             hue_scale = util.scale_factory(self.huescale, 
                                            experiment, 
                                            data = np.array([1, data_max]))
-            kwargs['norm'] = hue_scale.color_norm()
+            kwargs['norm'] = hue_scale.norm()
         
         grid.map(_densityplot, self.xchannel, self.ychannel, xbins = xbins, ybins = ybins, **kwargs)
                

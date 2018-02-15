@@ -11,12 +11,12 @@ environment:
     # Pre-installed Python versions, which Appveyor may upgrade to
     # a later point release.
 
-    - PYTHON: "C:\\Miniconda3"
-      PYTHON_VERSION: "3.4.x"   # currently 3.4.3
+    - PYTHON: "C:\\Miniconda35"
+      PYTHON_VERSION: "3.5.x"   # currently 3.5.2
       PYTHON_ARCH: "32"
 
-    - PYTHON: "C:\\Miniconda3-x64"
-      PYTHON_VERSION: "3.4.x"       # currently 3.4.3
+    - PYTHON: "C:\\Miniconda35-x64"
+      PYTHON_VERSION: "3.5.x"       # currently 3.5.2
       PYTHON_ARCH: "64"
 
 init:
@@ -44,25 +44,28 @@ install:
 
   # Install the build and runtime dependencies of the project.
   - conda update --yes conda
-  - conda create --yes --quiet --name=py34 python=3.4
-  - activate py34
+  - conda create --yes --quiet --name=py35 python=3.5
+  - activate py35
   
   # Check again for the expected version and architecture for Python
   - "python --version"
   - "python -c \"import struct; print(struct.calcsize('P') * 8)\""
   
-  - conda install --yes --quiet mkl=2017.0.3-0  # new version of mkl has bad interaction with numpy
+  # - conda install --yes --quiet mkl=2017.0.3-0  # new version of mkl has bad interaction with numpy
   - conda install --yes --quiet --file=packaging\conda-requirements.txt
   - conda install --yes --quiet msvc_runtime pip mock
   - pip.exe install nose2 sphinx
-  - pip.exe install "pyinstaller==3.2.1"
+  - pip.exe install "pyinstaller==3.3.1"
+  
+  # the PyYAML wheels are busted.  install from source instead
+  - pip.exe install --no-use-wheel pyyaml
 
   - "%WITH_COMPILER% python setup.py develop"
 
 build: off
 
 test_script:
-  - "nose2 -c packaging\\nose2.cfg"
+  - "nose2 -c packaging\\nose2.cfg -s cytoflow\\tests"
 
 after_test:
   - "python setup.py bdist_wheel bdist_wininst"

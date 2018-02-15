@@ -91,6 +91,9 @@ from cytoflowgui.ext_enum_editor import ExtendableEnumEditor
 from cytoflowgui.view_plugins.i_view_plugin \
     import IViewPlugin, VIEW_PLUGIN_EXT, ViewHandlerMixin, PluginViewMixin, PluginHelpMixin
 from cytoflowgui.util import DefaultFileDialog
+from cytoflowgui.serialization import camel_registry, traits_repr, dedent
+
+TableView.__repr__ = traits_repr
 
 class TableHandler(ViewHandlerMixin, Controller):
 
@@ -201,6 +204,17 @@ class TablePluginView(PluginViewMixin, TableView):
     def plot(self, experiment, plot_name = None, **kwargs):
         TableView.plot(self, experiment, **kwargs)
         self.result = experiment.statistics[self.statistic]
+        
+    def get_notebook_code(self, idx):
+        view = TableView()
+        view.copy_traits(self, view.copyable_trait_names())
+
+        return dedent("""
+        {repr}.plot(ex_{idx}{plot})
+        """
+        .format(repr = repr(view),
+                idx = idx,
+                plot = ", plot_name = " + repr(self.current_plot) if self.plot_names else ""))
 
     @on_trait_change('export')
     def _on_export(self):
@@ -340,3 +354,19 @@ class TablePlugin(Plugin, PluginHelpMixin):
     @contributes_to(VIEW_PLUGIN_EXT)
     def get_plugin(self):
         return self
+    
+### Serialization
+
+@camel_registry.dumper(TablePluginView, 'table-view', version = 1)
+def _dump(view):
+    return dict(statistic = view.statistic,
+                row_facet = view.row_facet,
+                subrow_facet = view.subrow_facet,
+                column_facet = view.column_facet,
+                subcolumn_facet = view.subcolumn_facet,
+                subset_list = view.subset_list)
+    
+@camel_registry.loader('table-view', version = 1)
+def _load(data, version):
+    data['statistic'] = tuple(data['statistic'])
+    return TablePluginView(**data)

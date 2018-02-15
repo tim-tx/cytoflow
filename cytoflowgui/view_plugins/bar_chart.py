@@ -100,6 +100,9 @@ from cytoflowgui.color_text_editor import ColorTextEditor
 from cytoflowgui.ext_enum_editor import ExtendableEnumEditor
 from cytoflowgui.view_plugins.i_view_plugin \
     import IViewPlugin, VIEW_PLUGIN_EXT, ViewHandlerMixin, PluginViewMixin, PluginHelpMixin
+from cytoflowgui.serialization import camel_registry, traits_repr, dedent
+
+BarChartView.__repr__ = traits_repr
         
 class BarChartHandler(ViewHandlerMixin, Controller):
     
@@ -200,6 +203,17 @@ class BarChartHandler(ViewHandlerMixin, Controller):
     
 class BarChartPluginView(PluginViewMixin, BarChartView):
     handler_factory = Callable(BarChartHandler)
+    
+    def get_notebook_code(self, idx):
+        view = BarChartView()
+        view.copy_traits(self, view.copyable_trait_names())
+
+        return dedent("""
+        {repr}.plot(ex_{idx}{plot})
+        """
+        .format(repr = repr(view),
+                idx = idx,
+                plot = ", plot_name = " + repr(self.current_plot) if self.plot_names else ""))
 
 @provides(IViewPlugin)
 class BarChartPlugin(Plugin, PluginHelpMixin):
@@ -217,3 +231,21 @@ class BarChartPlugin(Plugin, PluginHelpMixin):
     @contributes_to(VIEW_PLUGIN_EXT)
     def get_plugin(self):
         return self
+    
+### Serialization
+@camel_registry.dumper(BarChartPluginView, 'bar-chart', version = 1)
+def _dump(view):
+    return dict(statistic = view.statistic,
+                variable = view.variable,
+                yscale = view.yscale,
+                xfacet = view.xfacet,
+                yfacet = view.yfacet,
+                huefacet = view.huefacet,
+                error_statistic = view.error_statistic,
+                subset_list = view.subset_list)
+    
+@camel_registry.loader('bar-chart', version = 1)
+def _load(data, version):
+    data['statistic'] = tuple(data['statistic'])
+    data['error_statistic'] = tuple(data['error_statistic'])
+    return BarChartPluginView(**data)

@@ -90,6 +90,10 @@ from cytoflowgui.color_text_editor import ColorTextEditor
 from cytoflowgui.ext_enum_editor import ExtendableEnumEditor
 from cytoflowgui.view_plugins.i_view_plugin \
     import IViewPlugin, VIEW_PLUGIN_EXT, ViewHandlerMixin, PluginViewMixin, PluginHelpMixin
+from cytoflowgui.serialization import camel_registry, traits_repr, dedent
+from cytoflowgui.util import IterWrapper
+
+Kde1DView.__repr__ = traits_repr
     
 class Kde1DHandler(ViewHandlerMixin, Controller):
 
@@ -148,10 +152,8 @@ class Kde1DPluginView(PluginViewMixin, Kde1DView):
             raise util.CytoflowViewError("Plot facet {0} not in the experiment"
                                     .format(self.huefacet))
         values = np.sort(pd.unique(wi.result[self.plotfacet]))
-        return iter(values)
-    
-    def plot_wi(self, wi):
-        self.plot(wi.result, wi.current_plot)
+        return IterWrapper(iter(values), [self.plotfacet])
+
     
     def plot(self, experiment, plot_name = None, **kwargs):
         if experiment is None:
@@ -164,6 +166,17 @@ class Kde1DPluginView(PluginViewMixin, Kde1DView):
         
         if self.plotfacet and plot_name is not None:
             plt.title("{0} = {1}".format(self.plotfacet, plot_name))
+            
+    def get_notebook_code(self, idx):
+        view = Kde1DView()
+        view.copy_traits(self, view.copyable_trait_names())
+
+        return dedent("""
+        {repr}.plot(ex_{idx}{plot})
+        """
+        .format(repr = repr(view),
+                idx = idx,
+                plot = ", plot_name = " + repr(self.current_plot) if self.plot_names else ""))
 
 @provides(IViewPlugin)
 class Kde1DPlugin(Plugin, PluginHelpMixin):
@@ -181,3 +194,19 @@ class Kde1DPlugin(Plugin, PluginHelpMixin):
     @contributes_to(VIEW_PLUGIN_EXT)
     def get_plugin(self):
         return self
+    
+### Serialization
+@camel_registry.dumper(Kde1DPluginView, 'kde-1d', version = 1)
+def _dump(view):
+    return dict(channel = view.channel,
+                scale = view.scale,
+                xfacet = view.xfacet,
+                yfacet = view.yfacet,
+                huefacet = view.huefacet,
+                huescale = view.huescale,
+                plotfacet = view.plotfacet,
+                subset_list = view.subset_list)
+    
+@camel_registry.loader('kde-1d', version = 1)
+def _load(data, version):
+    return Kde1DPluginView(**data)

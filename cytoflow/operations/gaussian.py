@@ -34,6 +34,7 @@ import scipy.stats
 import scipy.linalg
 
 import pandas as pd
+import numpy as np
 
 from cytoflow.views import IView, HistogramView, ScatterplotView
 import cytoflow.utility as util
@@ -387,6 +388,12 @@ class GaussianMixtureOp(HasStrictTraits):
             raise util.CytoflowOpError(None, 
                                        "No components found.  Did you forget to "
                                        "call estimate()?")
+            
+        for c in self.channels:
+            if c not in self._scale:
+                raise util.CytoflowOpError(None,
+                                           "Model scale not set.  Did you forget "
+                                           "to call estimate()?")
  
         for c in self.channels:
             if c not in experiment.channels:
@@ -536,7 +543,7 @@ class GaussianMixtureOp(HasStrictTraits):
         if self.sigma > 0:
             for c in range(self.num_components):
                 gate_name = "{}_{}".format(self.name, c + 1)
-                new_experiment.add_condition(gate_name, "bool", event_gate[c])
+                new_experiment.add_condition(gate_name, "bool", event_gate[c])              
                 
         if self.posteriors:
             for c in range(self.num_components):
@@ -626,7 +633,12 @@ class GaussianMixture1DView(By1DView, AnnotatingView, HistogramView):
         ----------
         """
         
-        view, trait_name = self._strip_trait(self.op.name)
+        if self.op.num_components == 1:
+            annotation_facet = self.op.name + "_1"
+        else:
+            annotation_facet = self.op.name
+            
+        view, trait_name = self._strip_trait(annotation_facet)
         
         if self.channel in self.op._scale:
             scale = self.op._scale[self.channel]
@@ -634,7 +646,7 @@ class GaussianMixture1DView(By1DView, AnnotatingView, HistogramView):
             scale = util.scale_factory(self.scale, experiment, channel = self.channel)
     
         super(GaussianMixture1DView, view).plot(experiment,
-                                                annotation_facet = self.op.name,
+                                                annotation_facet = annotation_facet,
                                                 annotation_trait = trait_name,
                                                 annotations = self.op._gmms,
                                                 scale = scale,
@@ -657,6 +669,11 @@ class GaussianMixture1DView(By1DView, AnnotatingView, HistogramView):
                 idx = int(idx) - 1            
             except:
                 return 
+        elif isinstance(annotation_value, np.bool_):
+            if annotation_value:
+                idx = 0
+            else:
+                return
         else:
             idx = annotation_value
               
@@ -712,7 +729,12 @@ class GaussianMixture2DView(By2DView, AnnotatingView, ScatterplotView):
         ----------
         """
         
-        view, trait_name = self._strip_trait(self.op.name)
+        if self.op.num_components == 1:
+            annotation_facet = self.op.name + "_1"
+        else:
+            annotation_facet = self.op.name
+        
+        view, trait_name = self._strip_trait(annotation_facet)
         
         if self.xchannel in self.op._scale:
             xscale = self.op._scale[self.xchannel]
@@ -725,7 +747,7 @@ class GaussianMixture2DView(By2DView, AnnotatingView, ScatterplotView):
             yscale = util.scale_factory(self.yscale, experiment, channel = self.ychannel)
     
         super(GaussianMixture2DView, view).plot(experiment,
-                                                annotation_facet = self.op.name,
+                                                annotation_facet = annotation_facet,
                                                 annotation_trait = trait_name,
                                                 annotations = self.op._gmms,
                                                 xscale = xscale,
@@ -741,12 +763,17 @@ class GaussianMixture2DView(By2DView, AnnotatingView, ScatterplotView):
             for i in range(len(gmm.means_)):
                 self._annotation_plot(axes, xlim, ylim, xscale, yscale, annotation, annotation_facet, i, annotation_color)
             return
-        elif type(annotation_value) is str:
+        elif isinstance(annotation_value, str):
             try:
                 idx_re = re.compile(annotation_facet + '_(\d+)')
                 idx = idx_re.match(annotation_value).group(1)
                 idx = int(idx) - 1             
             except:
+                return
+        elif isinstance(annotation_value, np.bool_):
+            if annotation_value:
+                idx = 0
+            else:
                 return
         else:
             idx = annotation_value

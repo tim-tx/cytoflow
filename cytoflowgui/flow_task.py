@@ -25,29 +25,29 @@ Created on Feb 11, 2015
 # from traits.etsconfig.api import ETSConfig
 # ETSConfig.toolkit = 'qt4'
 
-import os.path
+import os.path, webbrowser
 
 from traits.api import Instance, List, Bool, on_trait_change, Any, Unicode, TraitError
-from pyface.tasks.api import Task, TaskLayout, PaneItem
-from pyface.tasks.action.api import SMenu, SMenuBar, SToolBar, TaskAction
-from pyface.api import FileDialog, ImageResource, AboutDialog, information, error, confirm, OK, YES
+from pyface.tasks.api import Task, TaskLayout, PaneItem, TaskWindowLayout
+from pyface.tasks.action.api import SMenu, SMenuBar, SToolBar, TaskAction, TaskToggleGroup
+from pyface.tasks.action.task_toggle_group import TaskToggleAction
+from pyface.api import FileDialog, ImageResource, AboutDialog, information, error, confirm, OK, YES, NO, ConfirmationDialog
 from envisage.api import Plugin, ExtensionPoint, contributes_to
 from envisage.ui.tasks.api import TaskFactory
+from envisage.ui.tasks.action.api import TaskWindowLaunchAction, TaskWindowToggleGroup
 
-from cytoflowgui.flow_task_pane import FlowTaskPane
+# from cytoflowgui.flow_task_pane import FlowTaskPane
 from cytoflowgui.workflow_pane import WorkflowDockPane
 from cytoflowgui.view_pane import ViewDockPane
 from cytoflowgui.help_pane import HelpDockPane
 from cytoflowgui.workflow import Workflow
-from cytoflowgui.op_plugins import IOperationPlugin, ImportPlugin, ChannelStatisticPlugin, OP_PLUGIN_EXT
+from cytoflowgui.op_plugins import IOperationPlugin, ImportPlugin, OP_PLUGIN_EXT
 from cytoflowgui.view_plugins import IViewPlugin, VIEW_PLUGIN_EXT
-from cytoflowgui.notebook import JupyterNotebookWriter
 from cytoflowgui.workflow_item import WorkflowItem
 from cytoflowgui.util import DefaultFileDialog
+from cytoflowgui.serialization import save_yaml, load_yaml, save_notebook
 
-# from . import mailto
-
-import pickle as pickle
+from cytoflowgui.mailto import mailto
 
 class FlowTask(Task):
     """
@@ -61,7 +61,6 @@ class FlowTask(Task):
     model = Instance(Workflow)
         
     # the center pane
-    plot_pane = Instance(FlowTaskPane)
     workflow_pane = Instance(WorkflowDockPane)
     view_pane = Instance(ViewDockPane)
     help_pane = Instance(HelpDockPane)
@@ -83,14 +82,16 @@ class FlowTask(Task):
                               TaskAction(name='Save Plot...',
                                          method='on_export',
                                          accelerator='Ctrl+x'),
-#                               TaskAction(name='Export Jupyter notebook...',
-#                                          method='on_notebook',
-#                                          accelerator='Ctrl+I'),                              
+                              TaskAction(name='Export Jupyter notebook...',
+                                         method='on_notebook',
+                                         accelerator='Ctrl+I'),                              
 #                               TaskAction(name='Preferences...',
 #                                          method='on_prefs',
 #                                          accelerator='Ctrl+P'),
                               id='File', name='&File'),
-                        SMenu(id = 'View', name = '&View'),
+                        SMenu(TaskToggleGroup(),
+#                               TaskWindowToggleGroup(),
+                              id = 'View', name = '&View'),
                         SMenu(TaskAction(name = 'Report a problem....',
                                          method = 'on_problem'),
                               TaskAction(name='About...',
@@ -113,10 +114,18 @@ class FlowTask(Task):
                                       name = "Save Plot",
                                       tooltip='Save the current plot',
                                       image=ImageResource('export')),
-#                            TaskAction(method='on_notebook',
-#                                       name='Notebook',
-#                                       tooltip="Export to an Jupyter notebook...",
-#                                       image=ImageResource('ipython')),
+                            TaskAction(method='on_notebook',
+                                       name='Notebook',
+                                       tooltip="Export to an Jupyter notebook...",
+                                       image=ImageResource('ipython')),
+                           TaskAction(method = "on_calibrate",
+                                      name = "Calibrate FCS...",
+                                      tooltip = "Calibrate FCS files",
+                                      image = ImageResource('tasbe')),
+                           TaskAction(method = 'on_problem',
+                                      name = "Report a bug...",
+                                      tooltib = "Report a bug",
+                                      image = ImageResource('bug')),
 #                            TaskAction(method='on_prefs',
 #                                       name = "Prefs",
 #                                       tooltip='Preferences',
@@ -126,11 +135,18 @@ class FlowTask(Task):
     # the file to save to if the user clicks "save" and has already clicked
     # "open" or "save as".
     filename = Unicode
-    
-    def prepare_destroy(self):
-        self.model.shutdown_remote_process()
-    
+        
     def activated(self):
+        
+        # if we're coming back from the TASBE task, re-load the saved
+        # workflow
+        if self.model.backup_workflow:
+            self.model.workflow = self.model.backup_workflow
+            self.model.backup_workflow = []
+            return
+        
+        # else, set up a new workflow
+        
         # add the import op
         self.add_operation(ImportPlugin().id) 
         self.model.selected = self.model.workflow[0]
@@ -138,11 +154,9 @@ class FlowTask(Task):
         # if we're debugging, add a few data bits
         if self.model.debug:
             from cytoflow import Tube
-            
+                        
             import_op = self.model.workflow[0].operation
             import_op.conditions = {"Dox" : "float", "Well" : "category"}
-#             import_op.conditions["Dox"] = "float"
-#             import_op.conditions["Well"] = "category"
          
             tube1 = Tube(file = "../cytoflow/tests/data/Plate01/CFP_Well_A4.fcs",
                          conditions = {"Dox" : 0.0, "Well" : 'A'})
@@ -158,6 +172,8 @@ class FlowTask(Task):
          
             import_op.tubes = [tube1, tube2, tube3, tube4]
             
+#             from cytoflowgui.op_plugins import ChannelStatisticPlugin
+
 #             self.add_operation(ChannelStatisticPlugin().id)
 #             stat_op = self.model.workflow[1].operation
 #             stat_op.name = "Test"
@@ -172,9 +188,9 @@ class FlowTask(Task):
         return TaskLayout(left = PaneItem("edu.mit.synbio.workflow_pane"),
                           right = PaneItem("edu.mit.synbio.view_traits_pane"))
      
-    def create_central_pane(self):
-        self.plot_pane = FlowTaskPane(model = self.model)
-        return self.plot_pane
+    def create_central_pane(self):       
+#         self.plot_pane = self.application.plot_pane
+        return self.application.plot_pane
      
     def create_dock_panes(self):
         self.workflow_pane = WorkflowDockPane(model = self.model, 
@@ -237,36 +253,11 @@ class FlowTask(Task):
             self.filename = dialog.path
             self.window.title = "Cytoflow - " + self.filename
             
+
     def open_file(self, path):
-        f = open(path, 'r')
-        unpickler = pickle.Unpickler(f)
         
-        try:
-            version = unpickler.load()
-        except TraitError:
-            error(parent = None,
-                  message = "This doesn't look like a Cytoflow file. Or maybe "
-                            "you tried to load a workflow older than version "
-                            "0.5?")
-            return
+        new_workflow = load_yaml(path)
         
-        if version != self.model.version:
-            ret = confirm(parent = None,
-                          message = "This is Cytoflow {}, but you're trying "
-                          "to load a workflow from version {}. This may or "
-                          "may not work!  Are you sure you want to proceed?"
-                          .format(self.model.version, version),
-                          title = "Load workflow?")
-            if ret != YES:
-                return
-
-        try:
-            new_workflow = unpickler.load()
-        except TraitError:
-            error(parent = None,
-                  message = "Error trying to load the workflow.")
-            return
-
         # a few things to take care of when reloading
         for wi_idx, wi in enumerate(new_workflow):
             
@@ -276,10 +267,13 @@ class FlowTask(Task):
             # clear the wi status
             wi.status = "loading"
 
-            # re-link the linked list.  i thought this would get taken care
-            # of in deserialization, but i guess not...
+            # re-link the linked list.
             if wi_idx > 0:
                 wi.previous_wi = new_workflow[wi_idx - 1]
+            
+            if wi_idx < len(new_workflow) - 1:
+                wi.next_wi = new_workflow[wi_idx + 1]
+
 
         # replace the current workflow with the one we just loaded
         
@@ -301,7 +295,8 @@ class FlowTask(Task):
     def on_save(self):
         """ Save the file to the previous filename  """
         if self.filename:
-            self.save_file(self.filename)
+            save_yaml(self.model.workflow, self.filename)
+            self.model.modified = False
         else:
             self.on_save_as()
             
@@ -313,19 +308,11 @@ class FlowTask(Task):
                                                FileDialog.create_wildcard("All files", "*")))                    #@UndefinedVariable  
         
         if dialog.open() == OK:
-            self.save_file(dialog.path)
+            save_yaml(self.model.workflow, dialog.path)
             self.filename = dialog.path
+            self.model.modified = False
             self.window.title = "Cytoflow - " + self.filename
-        pass
             
-    def save_file(self, path):
-        # TODO - error handling
-        f = open(path, 'w')
-        pickler = pickle.Pickler(f, 0)  # text protocol for now
-        pickler.dump(self.model.version)
-        pickler.dump(self.model.workflow)
-        self.model.modified = False
-        
     @on_trait_change('model.modified', post_init = True)
     def _on_model_modified(self, val):
         if val:
@@ -344,7 +331,7 @@ class FlowTask(Task):
                           "to a file.", "Export")
         
         f = ""
-        filetypes_groups = self.plot_pane.canvas.get_supported_filetypes_grouped()
+        filetypes_groups = self.application.plot_pane.canvas.get_supported_filetypes_grouped()
         filename_exts = []
         for name, ext in filetypes_groups.items():
             if f:
@@ -357,41 +344,72 @@ class FlowTask(Task):
                             wildcard = f)
         
         if dialog.open() == OK:
-            filetypes = list(self.plot_pane.canvas.get_supported_filetypes().keys())
+            filetypes = list(self.application.plot_pane.canvas.get_supported_filetypes().keys())
             if not [ext for ext in ["." + ext for ext in filetypes] if dialog.path.endswith(ext)]:
                 selected_exts = filename_exts[dialog.wildcard_index]
                 ext = sorted(selected_exts, key = len)[0]
                 dialog.path += "."
                 dialog.path += ext
                 
-            self.plot_pane.export(dialog.path)
+            self.application.plot_pane.export(dialog.path)
 
-                
+
+    def on_calibrate(self):
+        task = next(x for x in self.window.tasks if x.id == 'edu.mit.synbio.cytoflow.tasbe_task')
+        self.window.activate_task(task)
+        
             
     def on_notebook(self):
         """
         Shows a dialog to export the workflow to an Jupyter notebook
         """
-        
-        return
-    
+
         dialog = FileDialog(parent = self.window.control,
                             action = 'save as',
-                            wildcard = '*.ipynb')
+                            default_suffix = "ipynb",
+                            wildcard = (FileDialog.create_wildcard("Jupyter notebook", "*.ipynb") + ';' + #@UndefinedVariable  
+                                        FileDialog.create_wildcard("All files", "*")))  # @UndefinedVariable
         if dialog.open() == OK:
-            writer = JupyterNotebookWriter(file = dialog.path)
-            writer.export(self.model.workflow)
-   
+            save_notebook(self.model.workflow, dialog.path)
+
     
     def on_prefs(self):
         pass
     
     def on_problem(self):
+
+        log = str(self._get_package_versions()) + "\n" + self.application.application_log.getvalue()
         
-        information(None, "Your email client will now create a new message to the "
-                    "developer.  Debugging logs are attached.  Please fill "
-                    "out the template bug report and send -- thank you for "
-                    "reporting a bug!")
+        msg = "The best way to report a problem is send an application log to " \
+              "the developers.  You can do so by either sending us an email " \
+              "with the log in it, or saving the log to a file and filing a " \
+              "new issue on GitHub at " \
+              "https://github.com/bpteague/cytoflow/issues/new" 
+        
+        dialog = ConfirmationDialog(message = msg,
+                                    informative = "Which would you like to do?",
+                                    yes_label = "Send an email...",
+                                    no_label = "Save to a file...")
+                
+        if dialog.open() == NO:
+            dialog = DefaultFileDialog(parent = self.window.control,
+                                       action = 'save as', 
+                                       default_suffix = "log",
+                                       wildcard = (FileDialog.create_wildcard("Log files", "*.log") + ';' + #@UndefinedVariable  
+                                                   FileDialog.create_wildcard("All files", "*")))                    #@UndefinedVariable  
+            
+            if dialog.open() == OK:
+                with open(dialog.path, 'w') as f:
+                    f.write(log)
+                  
+                webbrowser.open_new_tab("https://github.com/bpteague/cytoflow/issues/new")
+                  
+            return
+        
+        information(None, "I'll now try to open your email client and create a "
+                    "new message to the developer.  Debugging logs are "
+                    "attached.  Please fill out the template bug report and " 
+                    "send -- thank you for reporting a bug!")
 
         log = self.application.application_log.getvalue()
         
@@ -411,15 +429,12 @@ DESCRIPTION:
   - What happened?
   - What did you expect to happen?
   
+DEBUG LOG: {0}
+""".format(log)
 
-PACKAGE VERSIONS: {0}
-
-DEBUG LOG: {1}
-""".format(versions, log)
-
-#         mailto.mailto("teague@mit.edu", 
-#                       subject = "Cytoflow bug report",
-#                       body = body)
+        mailto("teague@mit.edu", 
+               subject = "Cytoflow bug report",
+               body = body)
     
     def _get_package_versions(self):
     
@@ -434,10 +449,14 @@ DEBUG LOG: {1}
         from matplotlib import __version__ as mpl_version
         from scipy import __version__ as scipy_version
         from sklearn import __version__ as skl_version
+        from statsmodels import __version__ as stats_version
         from pyface import __version__ as pyf_version
         from envisage import __version__ as env_version
         from traits import __version__ as trt_version
         from traitsui import __version__ as trt_ui_version
+        from yapf import __version__ as yapf_version
+        from nbformat import __version__ as nb_version
+        from yaml import __version__ as yaml_version
         
         return {"python" : sys.version,
                 "cytoflow" : cf_version,
@@ -450,10 +469,14 @@ DEBUG LOG: {1}
                 "matplotlib" : mpl_version,
                 "scipy" : scipy_version,
                 "scikit-learn" : skl_version,
+                "statsmodels" : stats_version,
                 "pyface" : pyf_version,
                 "envisage" : env_version,
                 "traits" : trt_version,
-                "traitsui" : trt_ui_version}
+                "traitsui" : trt_ui_version,
+                "nbformat" : nb_version,
+                "yapf" : yapf_version,
+                "yaml" : yaml_version}
         
         
     def on_about(self):
@@ -550,10 +573,7 @@ class FlowTaskPlugin(Plugin):
     # these need to be declared in a Plugin instance; we pass them to
     # the task instance thru its factory, below.
     op_plugins = ExtensionPoint(List(IOperationPlugin), OP_PLUGIN_EXT)
-    view_plugins = ExtensionPoint(List(IViewPlugin), VIEW_PLUGIN_EXT)
-    
-    debug = Bool(False)
-    remote_connection = Any
+    view_plugins = ExtensionPoint(List(IViewPlugin), VIEW_PLUGIN_EXT)    
 
     #### 'IPlugin' interface ##################################################
 
@@ -579,14 +599,10 @@ class FlowTaskPlugin(Plugin):
 
     @contributes_to(TASKS)
     def _get_tasks(self):
-        from cytoflow import __version__ as cf_version
-
         return [TaskFactory(id = 'edu.mit.synbio.cytoflow.flow_task',
                             name = 'Cytometry analysis',
                             factory = lambda **x: FlowTask(application = self.application,
                                                            op_plugins = self.op_plugins,
                                                            view_plugins = self.view_plugins,
-                                                           model = Workflow(self.remote_connection,
-                                                                            version = cf_version,
-                                                                            debug = self.debug),
+                                                           model = self.application.model,
                                                            **x))]

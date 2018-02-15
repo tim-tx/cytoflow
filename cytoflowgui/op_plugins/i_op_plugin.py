@@ -17,6 +17,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import os
+from textwrap import dedent
 
 from pyface.qt import QtGui
 
@@ -109,7 +110,7 @@ class PluginOpMixin(HasTraits):
     changed = Event
     
                 
-    def should_apply(self, changed):
+    def should_apply(self, changed, payload):
         """
         Should the owning WorkflowItem apply this operation when certain things
         change?  `changed` can be:
@@ -120,7 +121,7 @@ class PluginOpMixin(HasTraits):
         return True
 
     
-    def should_clear_estimate(self, changed):
+    def should_clear_estimate(self, changed, payload):
         """
         Should the owning WorkflowItem clear the estimated model by calling
         op.clear_estimate()?  `changed` can be:

@@ -96,6 +96,13 @@ class Msg(object):
     APPLY_CALLED = "APPLY_CALLED"
     PLOT_CALLED = "PLOT_CALLED"
     
+    # a statement to evaluate in the remote process, or the result of that
+    # evaluation.
+    EVAL = "EVAL"
+    
+    # statement execution
+    EXEC = "EXEC"
+    
     SHUTDOWN = "SHUTDOWN"
     
 class Changed(object):
@@ -162,13 +169,16 @@ def log_exception():
 class Workflow(HasStrictTraits):
     
     workflow = List(WorkflowItem)
+    backup_workflow = List(WorkflowItem)  # for the TASBE task
     selected = Instance(WorkflowItem)
-    version = Str
     
     modified = Bool
     debug = Bool
 
-#     default_scale = util.ScaleEnum
+    single_operation = View(Item('selected',
+                                 editor = InstanceEditor(view = 'operation_traits'),
+                                 style = 'custom',
+                                 show_label = False))
     
     # a view for the entire workflow's list of operations 
     operations_traits = View(Item('workflow',
@@ -217,6 +227,14 @@ class Workflow(HasStrictTraits):
     # useful for debugging
     apply_calls = Int(0)
     plot_calls = Int(0)
+    
+    # evaluate an expression in the remote process.  useful for debugging.
+    eval_event = Instance(threading.Event, ())
+    eval_result = Any
+    
+    # evaluate an expression in the remote process.  useful for debugging.
+    eval_event = Instance(threading.Event, ())
+    eval_result = Any
     
     def __init__(self, remote_connection, **kwargs):
         super(Workflow, self).__init__(**kwargs)  
@@ -287,6 +305,10 @@ class Workflow(HasStrictTraits):
                     
                 elif msg == Msg.PLOT_CALLED:
                     self.plot_calls = payload
+                    
+                elif msg == Msg.EVAL:
+                    self.eval_result = payload
+                    self.eval_event.set()
                     
                 else:
                     raise RuntimeError("Bad message from remote")
@@ -458,7 +480,17 @@ class Workflow(HasStrictTraits):
         wi = next((x for x in self.workflow if x.operation == obj))
         idx = self.workflow.index(wi)
         self.message_q.put((Msg.ESTIMATE, idx))
+        
+    def remote_eval(self, expr):
+        self.eval_event.clear()
+        self.message_q.put((Msg.EVAL, expr))
+        
+        self.eval_event.wait()
+        return self.eval_result
 
+    def remote_exec(self, expr):
+        self.message_q.put((Msg.EXEC, expr))
+        
         
 class RemoteWorkflow(HasStrictTraits):
     workflow = List(RemoteWorkflowItem)
@@ -569,11 +601,14 @@ class RemoteWorkflow(HasStrictTraits):
                 elif msg == Msg.ADD_ITEMS:
                     (idx, new_item) = payload
                     wi = RemoteWorkflowItem()
+                    wi.lock.acquire()
                     wi.copy_traits(new_item)
                     wi.matplotlib_events = self.matplotlib_events
                     wi.plot_lock = self.plot_lock
                     
                     self.workflow.insert(idx, wi)
+                    self.exec_q.put((idx, (wi, wi.apply)))
+                    wi.lock.release()
     
                 elif msg == Msg.REMOVE_ITEMS:
                     idx = payload
@@ -621,7 +656,7 @@ class RemoteWorkflow(HasStrictTraits):
                             raise RuntimeError("Tried to set a remote transient trait")
                         
                         view.trait_set(**{name : new})
-    
+
                 elif msg == Msg.CHANGE_CURRENT_VIEW:
                     (idx, view) = payload
                     wi = self.workflow[idx]
@@ -643,7 +678,16 @@ class RemoteWorkflow(HasStrictTraits):
                     
                 elif msg == Msg.SHUTDOWN:
                     self.exec_q.put((0, (None, None)))
-                                            
+                    
+                elif msg == Msg.EVAL:
+                    expr = payload
+                    ret = eval(expr)
+                    self.message_q.put((Msg.EVAL, ret))
+                    
+                elif msg == Msg.EXEC:
+                    expr = payload
+                    exec(expr)
+                                                 
                 else:
                     raise RuntimeError("Bad command in the remote workflow")
             
@@ -750,7 +794,7 @@ class RemoteWorkflow(HasStrictTraits):
         (msg, payload) = new
         
         if msg == Changed.OPERATION:
-            if wi.operation.should_apply(Changed.OPERATION):
+            if wi.operation.should_apply(Changed.OPERATION, payload):
                 with wi.lock:
                     wi.result = None
                     wi.status = "invalid"
@@ -758,12 +802,12 @@ class RemoteWorkflow(HasStrictTraits):
         
         elif msg == Changed.VIEW:
             (view, name, new) = payload
-            if wi.current_view == view and wi.current_view.should_plot(Changed.VIEW):
-                wi.update_plot_names()
+            if wi.current_view == view and wi.current_view.should_plot(Changed.VIEW, payload):
+                wi.current_view.update_plot_names(wi)
                 self.exec_q.put((idx - 0.1, (wi, wi.plot)))
                 
         elif msg == Changed.ESTIMATE:
-            if wi.operation.should_clear_estimate(Changed.ESTIMATE):
+            if wi.operation.should_clear_estimate(Changed.ESTIMATE, payload):
                 try:
                     wi.operation.clear_estimate()
                 except AttributeError:
@@ -772,11 +816,11 @@ class RemoteWorkflow(HasStrictTraits):
         elif msg == Changed.ESTIMATE_RESULT:
             if (wi == self.selected 
                 and wi.current_view 
-                and wi.current_view.should_plot(Changed.ESTIMATE_RESULT)):
-                wi.update_plot_names()
+                and wi.current_view.should_plot(Changed.ESTIMATE_RESULT, payload)):
+                wi.current_view.update_plot_names(wi)
                 self.exec_q.put((idx - 0.1, (wi, wi.plot)))
                 
-            if wi.operation.should_apply(Changed.ESTIMATE_RESULT):
+            if wi.operation.should_apply(Changed.ESTIMATE_RESULT, payload):
                 self.exec_q.put((idx, (wi, wi.apply)))
                         
         elif msg == Changed.OP_STATUS:
@@ -790,18 +834,18 @@ class RemoteWorkflow(HasStrictTraits):
         elif msg == Changed.RESULT:
             if (wi == self.selected 
                 and wi.current_view 
-                and wi.current_view.should_plot(Changed.RESULT)):
-                wi.update_plot_names()
+                and wi.current_view.should_plot(Changed.RESULT, payload)):
+                wi.current_view.update_plot_names(wi)
                 self.exec_q.put((idx - 0.1, (wi, wi.plot)))
                 
         elif msg == Changed.PREV_RESULT:
-            if wi.operation.should_clear_estimate(Changed.PREV_RESULT):
+            if wi.operation.should_clear_estimate(Changed.PREV_RESULT, payload):
                 try:
                     wi.operation.clear_estimate()
                 except AttributeError:
                     pass
                 
-            if wi.operation.should_apply(Changed.PREV_RESULT):
+            if wi.operation.should_apply(Changed.PREV_RESULT, payload):
                 with wi.lock:
                     wi.result = None
                     wi.status = "invalid"
@@ -809,8 +853,8 @@ class RemoteWorkflow(HasStrictTraits):
                 
             if (wi == self.selected 
                 and wi.current_view 
-                and wi.current_view.should_plot(Changed.PREV_RESULT)):
-                wi.update_plot_names()
+                and wi.current_view.should_plot(Changed.PREV_RESULT, payload)):
+                wi.current_view.update_plot_names(wi)
                 self.exec_q.put((idx - 0.1, (wi, wi.plot)))
 
     @on_trait_change('workflow:+', post_init = True)
@@ -842,21 +886,22 @@ class RemoteWorkflow(HasStrictTraits):
         if obj.next_wi:
             obj.next_wi.changed = (Changed.PREV_RESULT, None)
              
-    @on_trait_change('workflow:current_view, workflow:current_plot', post_init = True)
+    @on_trait_change('workflow:current_view, workflow:current_view:current_plot', post_init = True)
     def _current_view_changed(self, obj, name, old, new):
         logging.debug("RemoteWorkflow._current_view_changed :: {}"
                       .format((self, obj, name, old, new)))
         
         if obj == self.selected:
             idx = self.workflow.index(obj)
-            obj.update_plot_names()
+            obj.current_view.update_plot_names(obj)
             self.exec_q.put((idx + 0.1, (obj, obj.plot)))
             
     @on_trait_change('selected', post_init = True)
     def _selected_changed(self, obj, name, new):
         if new:
             idx = self.workflow.index(new)
-            new.update_plot_names()
+            if new.current_view:
+                new.current_view.update_plot_names(new)
             self.exec_q.put((idx + 0.1, (new, new.plot)))
             
     @on_trait_change('workflow:apply_called')

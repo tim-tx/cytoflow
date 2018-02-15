@@ -79,7 +79,9 @@ polygon, double-click.
 
 '''
 
-from traits.api import provides, Callable, Str, Instance, DelegatesTo
+from textwrap import dedent
+
+from traits.api import provides, Callable, Instance, DelegatesTo, on_trait_change
 from traitsui.api import View, Item, EnumEditor, Controller, VGroup, TextEditor
 from envisage.api import Plugin, contributes_to
 from pyface.api import ImageResource
@@ -95,6 +97,9 @@ from cytoflowgui.color_text_editor import ColorTextEditor
 from cytoflowgui.ext_enum_editor import ExtendableEnumEditor
 from cytoflowgui.op_plugins.i_op_plugin import PluginOpMixin, PluginHelpMixin
 from cytoflowgui.workflow import Changed
+from cytoflowgui.serialization import camel_registry, traits_repr, traits_str
+
+PolygonOp.__repr__ = traits_repr
 
 class PolygonHandler(OpHandlerMixin, Controller):
     def default_traits_view(self):
@@ -103,9 +108,13 @@ class PolygonHandler(OpHandlerMixin, Controller):
                     Item('xchannel',
                          editor=EnumEditor(name='context.previous_wi.channels'),
                          label = "X Channel"),
+                    Item('xscale',
+                         label = "X Scale"),
                     Item('ychannel',
                          editor=EnumEditor(name='context.previous_wi.channels'),
                          label = "Y Channel"),
+                    Item('yscale',
+                         label = "Y Scale"),
                     shared_op_traits) 
         
 class PolygonViewHandler(ViewHandlerMixin, Controller):
@@ -114,13 +123,9 @@ class PolygonViewHandler(ViewHandlerMixin, Controller):
                     VGroup(Item('xchannel', 
                                 label = "X Channel", 
                                 style = 'readonly'),
-                           Item('xscale',
-                                label = "X Scale"),
                            Item('ychannel',
                                 label = "Y Channel",
                                 style = 'readonly'),
-                           Item('yscale',
-                                label = "Y Scale"),
                            Item('huefacet',
                                 editor=ExtendableEnumEditor(name='handler.previous_conditions_names',
                                                             extra_items = {"None" : ""}),
@@ -148,10 +153,9 @@ class PolygonViewHandler(ViewHandlerMixin, Controller):
 class PolygonSelectionView(PluginViewMixin, PolygonSelection):
     handler_factory = Callable(PolygonViewHandler)
     op = Instance(IOperation, fixed = True)
-    vertices = DelegatesTo('op', status = True)
-    name = Str
+    vertices = DelegatesTo('op', status = True)    
     
-    def should_plot(self, changed):
+    def should_plot(self, changed, payload):
         if changed == Changed.PREV_RESULT or changed == Changed.VIEW:
             return True
         else:
@@ -159,12 +163,41 @@ class PolygonSelectionView(PluginViewMixin, PolygonSelection):
     
     def plot_wi(self, wi):
         self.plot(wi.previous_wi.result)
+        
+    def get_notebook_code(self, idx):
+        view = PolygonSelection()
+        view.copy_traits(self, view.copyable_trait_names())
+        
+        return dedent("""
+        op_{idx}.default_view({traits}).plot(ex_{prev_idx})
+        """
+        .format(idx = idx,
+                traits = traits_str(view), 
+                prev_idx = idx - 1))
     
 class PolygonPluginOp(PluginOpMixin, PolygonOp):
     handler_factory = Callable(PolygonHandler)
     
+    @on_trait_change('xchannel, ychannel, xscale, yscale', post_init = True)
+    def _reset_polygon(self):
+        self.vertices = []
+    
     def default_view(self, **kwargs):
         return PolygonSelectionView(op = self, **kwargs)
+    
+    def get_notebook_code(self, idx):
+        op = PolygonOp()
+        op.copy_traits(self, op.copyable_trait_names())
+
+        return dedent("""
+        op_{idx} = {repr}
+                
+        ex_{idx} = op_{idx}.apply(ex_{prev_idx})
+        """
+        .format(repr = repr(op),
+                idx = idx,
+                prev_idx = idx - 1))
+
 
 @provides(IOperationPlugin)
 class PolygonPlugin(Plugin, PluginHelpMixin):
@@ -184,3 +217,28 @@ class PolygonPlugin(Plugin, PluginHelpMixin):
     @contributes_to(OP_PLUGIN_EXT)
     def get_plugin(self):
         return self
+
+### Serialization
+@camel_registry.dumper(PolygonPluginOp, 'polygon', version = 1)
+def _dump(op):
+    return dict(name = op.name,
+                xchannel = op.xchannel,
+                ychannel = op.ychannel,
+                vertices = op.vertices,
+                xscale = op.xscale,
+                yscale = op.yscale)
+    
+@camel_registry.loader('polygon', version = 1)
+def _load(data, version):
+    data['vertices'] = [(v[0], v[1]) for v in data['vertices']]
+    return PolygonPluginOp(**data)
+
+@camel_registry.dumper(PolygonSelectionView, 'polygon-view', version = 1)
+def _dump_view(view):
+    return dict(op = view.op,
+                huefacet = view.huefacet,
+                subset_list = view.subset_list)
+
+@camel_registry.loader('polygon-view', version = 1)
+def _load_view(data, version):
+    return PolygonSelectionView(**data)

@@ -22,6 +22,7 @@ cytoflow.operations.flowpeaks
 '''
 
 import matplotlib.pyplot as plt
+from warnings import warn
 
 from traits.api import (HasStrictTraits, Str, CStr, Dict, Any, Instance, 
                         Constant, List, provides, Array, Function)
@@ -321,7 +322,8 @@ class FlowPeaksOp(HasStrictTraits):
             num_clusters = int(num_clusters)
             
             self._kmeans[data_group] = kmeans = \
-                sklearn.cluster.MiniBatchKMeans(n_clusters = num_clusters)
+                sklearn.cluster.MiniBatchKMeans(n_clusters = num_clusters,
+                                                random_state = 0)
             
             kmeans.fit(x)
             x_labels = kmeans.predict(x)
@@ -339,7 +341,6 @@ class FlowPeaksOp(HasStrictTraits):
             means = []
             weights = []
             normals = []
-            beta_max = []
                         
             for k in range(num_clusters):
                 xk = x[x_labels == k]
@@ -355,13 +356,6 @@ class FlowPeaksOp(HasStrictTraits):
                 n = scipy.stats.multivariate_normal(mean = mu, cov = s_smooth)
                 weights.append(weight_k)
                 normals.append(lambda x, n = n: n.pdf(x))
-                
-                # get appropriate step size for peak finding
-                min_b = np.inf
-                for b in np.diagonal(s_smooth):
-                    if np.sqrt(b) < min_b:
-                        min_b = np.sqrt(b)
-                beta_max.append(b)
                        
             self._normals[data_group] = normals         
             self._density[data_group] = density = lambda x, weights = weights, normals = normals: np.sum([w * n(x) for w, n in zip(weights, normals)], axis = 0)
@@ -381,30 +375,23 @@ class FlowPeaksOp(HasStrictTraits):
                         min_mu[ci] = mu[ci]
                     if mu[ci] > max_mu[ci]:
                         max_mu[ci] = mu[ci]
-             
-            constraints = []
-            for ci, c in enumerate(self.channels):                  
-                constraints.append({'type' : 'ineq',
-                                    'fun' : lambda x, min_mu = min_mu[ci]: x - min_mu})
-                constraints.append({'type' : 'ineq',
-                                    'fun' : lambda x, max_mu = max_mu[ci]: max_mu - x})
-                        
+          
             for k in range(num_clusters):
                 mu = means[k]
                 f = lambda x: -1.0 * density(x)
-                 
-                res = scipy.optimize.minimize(f, mu, method = 'COBYLA',
-                                              constraints = constraints,
-                                              options = {'rhobeg' : beta_max[k],
-                                                         'maxiter' : 5000})
+                
+                res = scipy.optimize.minimize(f, mu, method = "CG",
+                                              options = {'gtol' : 1e-3})
+
                 if not res.success:
-                    raise util.CytoflowOpError(None,
-                                               "Peak finding failed for cluster {}: {}"
-                                               .format(k, res.message))
+                    warn("Peak finding failed for cluster {}: {}"
+                         .format(k, res.message),
+                         util.CytoflowWarning)
 
 #                 ### The peak-searching algorithm from the paper.  works fine,
-#                 ### but slow!  we get similar results with the COBYLA
-#                 ### optimization method from scipy, using an appropriate rho
+#                 ### but slow!  we get similar results with the conjugate gradient
+#                 ### optimization method from scipy
+
 #                 x0 = x = means[k]
 #                 k0 = k
 #                 b = beta_max[k] / 10.0
@@ -443,7 +430,8 @@ class FlowPeaksOp(HasStrictTraits):
                                         
                 merged = False
                 for pi, p in enumerate(peaks):
-                    if np.linalg.norm(p - res.x) < (1e-2):
+                    # TODO - this probably only works for scaled measurements
+                    if np.linalg.norm(p - res.x) < (1e-2):  
                         peak_clusters[pi].append(k)
                         merged = True
                         break
@@ -550,18 +538,17 @@ class FlowPeaksOp(HasStrictTraits):
                     peak_groups[g] = min_gi
                 del groups[min_hi]
                 
-        cluster_group = [0] * num_clusters
-        cluster_peaks = [0] * num_clusters
-
-        for gi, g in enumerate(groups):
-            for p in g:
-                for cluster in peak_clusters[p]:
-                    cluster_group[cluster] = gi
-                    cluster_peaks[cluster] = p
-
-        self._peaks[data_group] = peaks                    
-        self._cluster_peak[data_group] = cluster_peaks
-        self._cluster_group[data_group] = cluster_group    
+            cluster_group = [0] * num_clusters
+            cluster_peaks = [0] * num_clusters
+    
+            for gi, g in enumerate(groups):
+                for p in g:
+                    for cluster in peak_clusters[p]:
+                        cluster_group[cluster] = gi
+                        cluster_peaks[cluster] = p
+    
+            self._cluster_peak[data_group] = cluster_peaks
+            self._cluster_group[data_group] = cluster_group    
                                                  
          
     def apply(self, experiment):
@@ -601,6 +588,11 @@ class FlowPeaksOp(HasStrictTraits):
         if len(self.channels) == 0:
             raise util.CytoflowOpError('channels',
                                        "Must set at least one channel")
+            
+        if not self._peaks:
+            raise util.CytoflowOpError(None,
+                                       "No model found.  Did you forget to "
+                                       "call estimate()?")
  
         for c in self.channels:
             if c not in experiment.data:
@@ -643,7 +635,15 @@ class FlowPeaksOp(HasStrictTraits):
                 raise util.CytoflowOpError('by',
                                            "Group {} had no data"
                                            .format(group))
+                
+            if group not in self._kmeans:
+                raise util.CytoflowOpError('by',
+                                           "Group {} not found in the estimated "
+                                           "model.  Do you need to re-run estimate()?"
+                                           .format(group))
+                
             x = data_subset.loc[:, self.channels[:]]
+            
             for c in self.channels:
                 x[c] = self._scale[c](x[c])
                  
@@ -665,6 +665,9 @@ class FlowPeaksOp(HasStrictTraits):
             groups = np.asarray(self._cluster_group[group])
             predicted_group = np.full(len(x), -1, "int")
             predicted_group[~x_na] = groups[ predicted_km[~x_na] ]
+                 
+            # outlier detection code.  this is disabled for the moment
+            # because it is really slow.
                  
 #             num_groups = len(set(groups))
 #             if self.find_outliers:
@@ -839,12 +842,17 @@ class FlowPeaks1DView(By1DView, AnnotatingView, HistogramView):
         """
                 
         view, trait_name = self._strip_trait(self.op.name)
+        
+        if self.channel in self.op._scale:
+            scale = self.op._scale[self.channel]
+        else:
+            scale = util.scale_factory(self.scale, experiment, channel = self.channel)
     
         super(FlowPeaks1DView, view).plot(experiment,
                                           annotation_facet = self.op.name,
                                           annotation_trait = trait_name,
                                           annotations = self.op._kmeans,
-                                          scale = self.op._scale[self.channel],
+                                          scale = scale,
                                           **kwargs)
         
         
@@ -863,7 +871,7 @@ class FlowPeaks2DView(By2DView, AnnotatingView, ScatterplotView):
     blue and the clusters-of-k-means in pink.
 
     Attributes
-    ----------    
+    ----------
 
     """
      
@@ -875,7 +883,7 @@ class FlowPeaks2DView(By2DView, AnnotatingView, ScatterplotView):
     xscale = util.ScaleEnum
     yscale = util.ScaleEnum
  
-    def plot(self, experiment, plot_name = None, **kwargs):
+    def plot(self, experiment, **kwargs):
         """
         Plot the plots.
         
@@ -891,13 +899,23 @@ class FlowPeaks2DView(By2DView, AnnotatingView, ScatterplotView):
                               self.op._cluster_peak[k])
                 
         view, trait_name = self._strip_trait(self.op.name)
+        
+        if self.xchannel in self.op._scale:
+            xscale = self.op._scale[self.xchannel]
+        else:
+            xscale = util.scale_factory(self.xscale, experiment, channel = self.xchannel)
+
+        if self.ychannel in self.op._scale:
+            yscale = self.op._scale[self.ychannel]
+        else:
+            yscale = util.scale_factory(self.yscale, experiment, channel = self.ychannel)
     
         super(FlowPeaks2DView, view).plot(experiment,
                                           annotation_facet = self.op.name,
                                           annotation_trait = trait_name,
                                           annotations = annotations,
-                                          xscale = self.op._scale[self.xchannel],
-                                          yscale = self.op._scale[self.ychannel],
+                                          xscale = xscale,
+                                          yscale = yscale,
                                           **kwargs)
  
     def _annotation_plot(self, axes, xlim, ylim, xscale, yscale, annotation, annotation_facet, annotation_value, annotation_color):
@@ -922,10 +940,10 @@ class FlowPeaks2DView(By2DView, AnnotatingView, ScatterplotView):
                 
             plt.plot([x, peak_x], [y, peak_y])
     
-            for peak in peaks:
-                x = self.op._scale[self.ychannel].inverse(peak[0])
-                y = self.op._scale[self.xchannel].inverse(peak[1])
-                plt.plot(x, y, 'o', color = "magenta")
+        for peak in peaks:
+            x = self.op._scale[self.ychannel].inverse(peak[0])
+            y = self.op._scale[self.xchannel].inverse(peak[1])
+            plt.plot(x, y, 'o', color = "magenta")
                 
                 
 class FlowPeaks2DDensityView(By2DView, AnnotatingView, NullView):
@@ -948,7 +966,7 @@ class FlowPeaks2DDensityView(By2DView, AnnotatingView, NullView):
     yscale = util.ScaleEnum
     huefacet = Constant(None)
  
-    def plot(self, experiment, plot_name = None, **kwargs):
+    def plot(self, experiment, **kwargs):
         """
         Plot the plots.
         
@@ -960,13 +978,33 @@ class FlowPeaks2DDensityView(By2DView, AnnotatingView, NullView):
         for k in self.op._kmeans:
             annotations[k] = (self.op._kmeans[k], 
                               self.op._peaks[k], 
+                              self.op._cluster_peak[k])
+        
+        if self.xchannel in self.op._scale:
+            xscale = self.op._scale[self.xchannel]
+        else:
+            xscale = util.scale_factory(self.xscale, experiment, channel = self.xchannel)
+
+        if self.ychannel in self.op._scale:
+            yscale = self.op._scale[self.ychannel]
+        else:
+            yscale = util.scale_factory(self.yscale, experiment, channel = self.ychannel)
+        
+        if not self.op._kmeans:
+            raise util.CytoflowViewError(None,
+                                         "Must estimate a model before plotting "
+                                         "the density plot.")
+        
+        for k in self.op._kmeans:
+            annotations[k] = (self.op._kmeans[k], 
+                              self.op._peaks[k], 
                               self.op._cluster_peak[k],
                               self.op._density[k])
                     
         super().plot(experiment,
                      annotations = annotations,
-                     xscale = self.op._scale[self.xchannel],
-                     yscale = self.op._scale[self.ychannel],
+                     xscale = xscale,
+                     yscale = yscale,
                      **kwargs)
         
     def _grid_plot(self, experiment, grid, xlim, ylim, xscale, yscale, **kwargs):
@@ -997,7 +1035,7 @@ class FlowPeaks2DDensityView(By2DView, AnnotatingView, NullView):
             ax.fp_xbins = xbins
             ax.fp_ybins = ybins
             ax.fp_keywords = kwargs
-            
+
         super()._grid_plot(experiment, grid, xlim, ylim, xscale, yscale, **kwargs)
             
         return {'cmap' : kwargs['cmap']}
@@ -1014,8 +1052,9 @@ class FlowPeaks2DDensityView(By2DView, AnnotatingView, NullView):
         kwargs = axes.fp_keywords
 
         # get rid of some kwargs that confuse pcolormesh
-        kwargs.pop('annotations')
-        kwargs.pop('annotation_facet')
+        kwargs.pop('annotations', None)
+        kwargs.pop('annotation_facet', None)
+        kwargs.pop('plot_name', None)
 
         h = density(util.cartesian([xscale(xbins), yscale(ybins)]))
         h = np.reshape(h, (len(xbins), len(ybins)))
@@ -1038,10 +1077,10 @@ class FlowPeaks2DDensityView(By2DView, AnnotatingView, NullView):
                 
             plt.plot([x, peak_x], [y, peak_y])
     
-            for peak in peaks:
-                x = self.op._scale[self.ychannel].inverse(peak[0])
-                y = self.op._scale[self.xchannel].inverse(peak[1])
-                plt.plot(x, y, 'o', color = "magenta")   
+        for peak in peaks:
+            x = self.op._scale[self.ychannel].inverse(peak[0])
+            y = self.op._scale[self.xchannel].inverse(peak[1])
+            plt.plot(x, y, 'o', color = "magenta")   
 
 util.expand_class_attributes(FlowPeaks1DView)
 util.expand_method_parameters(FlowPeaks1DView, FlowPeaks1DView.plot)

@@ -27,14 +27,15 @@ import os
 from pyface.qt import QtGui
 
 from traits.api import (Interface, Str, HasTraits, Instance, Event, 
-                        List, Property, on_trait_change, HTML)
-from traitsui.api import Handler
+                        List, Property, on_trait_change, HTML, Any)
+from traitsui.api import View, Item, Handler, HGroup, TextEditor
 
 import cytoflow.utility as util
 
 from cytoflowgui.subset import ISubset
 from cytoflowgui.workflow import Changed
 from cytoflowgui.workflow_item import WorkflowItem
+from cytoflowgui.flow_task_pane import TabListEditor
 
 VIEW_PLUGIN_EXT = 'edu.mit.synbio.cytoflow.view_plugins'
 
@@ -100,7 +101,9 @@ class PluginViewMixin(HasTraits):
     changed = Event
     
     # plot names
-    plot_names = List(Str, status = True)
+    plot_names = List(Any, status = True)
+    plot_names_by = Str(status = True)
+    current_plot = Any
     
     subset_list = List(ISubset)
     subset = Property(Str, depends_on = "subset_list.str")
@@ -113,7 +116,7 @@ class PluginViewMixin(HasTraits):
     def _subset_changed(self, obj, name, old, new):
         self.changed = (Changed.VIEW, (self, 'subset_list', self.subset_list))  
             
-    def should_plot(self, changed):
+    def should_plot(self, changed, payload):
         """
         Should the owning WorkflowItem refresh the plot when certain things
         change?  `changed` can be:
@@ -125,8 +128,8 @@ class PluginViewMixin(HasTraits):
         return True
     
     def plot_wi(self, wi):
-        if wi.current_view_plot_names:
-            self.plot(wi.result, plot_name = wi.current_plot)
+        if self.plot_names:
+            self.plot(wi.result, plot_name = self.current_plot)
         else:
             self.plot(wi.result)
             
@@ -136,11 +139,50 @@ class PluginViewMixin(HasTraits):
         except:
             return []
             
+    def update_plot_names(self, wi):
+        try:
+            plot_iter = self.enum_plots_wi(wi)
+            plot_names = [x for x in plot_iter]
+            if plot_names == [None] or plot_names == []:
+                self.plot_names = []
+                self.plot_names_by = []
+            else:
+                self.plot_names = plot_names
+                try:
+                    self.plot_names_by = ", ".join(plot_iter.by)
+                except Exception as e:
+                    self.plot_names_by = ""
+                    
+                if self.current_plot == None:
+                    self.current_plot = self.plot_names[0]
+                    
+        except Exception as e:
+            self.current_plot = None
+            self.plot_names = []
+
+    
+    def get_notebook_code(self, idx):
+        raise NotImplementedError("get_notebook_code is unimplemented for {id}"
+                                  .format(id = self.id))
+        
 
 class ViewHandlerMixin(HasTraits):
     """
     Useful bits for view handlers. 
     """
+    
+    # the view for the current plot
+    current_plot_view = \
+        View(
+            HGroup(
+                Item('plot_names_by',
+                     editor = TextEditor(),
+                     style = "readonly",
+                     show_label = False),
+                Item('current_plot',
+                     editor = TabListEditor(name = 'plot_names'),
+                     style = 'custom',
+                     show_label = False)))
     
     context = Instance(WorkflowItem)
     

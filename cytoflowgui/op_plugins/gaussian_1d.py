@@ -105,7 +105,7 @@ from traitsui.api import View, Item, EnumEditor, Controller, VGroup, \
                          CheckListEditor, ButtonEditor, TextEditor
 from envisage.api import Plugin, contributes_to
 from traits.api import (provides, Callable, Instance, Str, List, Dict, Any, 
-                        DelegatesTo, Property, on_trait_change)
+                        DelegatesTo, Property, on_trait_change, Constant)
 from pyface.api import ImageResource
 
 from cytoflow.operations import IOperation
@@ -119,6 +119,9 @@ from cytoflowgui.subset import ISubset, SubsetListEditor
 from cytoflowgui.color_text_editor import ColorTextEditor
 from cytoflowgui.op_plugins.i_op_plugin import PluginOpMixin, PluginHelpMixin
 from cytoflowgui.workflow import Changed
+from cytoflowgui.serialization import camel_registry, traits_repr, traits_str, dedent
+
+GaussianMixtureOp.__repr__ = traits_repr
 
 class GaussianMixture1DHandler(OpHandlerMixin, Controller):
     def default_traits_view(self):
@@ -155,6 +158,8 @@ class GaussianMixture1DHandler(OpHandlerMixin, Controller):
                     shared_op_traits)
 
 class GaussianMixture1DPluginOp(PluginOpMixin, GaussianMixtureOp):
+    id = Constant('edu.mit.synbio.cytoflowgui.operations.gaussian_1d')
+
     handler_factory = Callable(GaussianMixture1DHandler)
     
     channel = Str
@@ -174,7 +179,7 @@ class GaussianMixture1DPluginOp(PluginOpMixin, GaussianMixtureOp):
     def _get_subset(self):
         return " and ".join([subset.str for subset in self.subset_list if subset.str])
     
-    @on_trait_change('subset_list.str', post_init = True)
+    @on_trait_change('subset_list.str')
     def _subset_changed(self, obj, name, old, new):
         self.changed = (Changed.ESTIMATE, ('subset_list', self.subset_list))
     
@@ -184,11 +189,15 @@ class GaussianMixture1DPluginOp(PluginOpMixin, GaussianMixtureOp):
     def _channel_changed(self):
         self.channels = [self.channel]
         self.changed = (Changed.ESTIMATE, ('channels', self.channels))
+
+        if self.channel_scale:
+            self.scale = {self.channel : self.channel_scale}
+            self.changed = (Changed.ESTIMATE, ('scale', self.scale))
         
     @on_trait_change('channel_scale')
     def _scale_changed(self):
         if self.channel:
-            self.scale[self.channel] = self.channel_scale
+            self.scale = {self.channel : self.channel_scale}
         self.changed = (Changed.ESTIMATE, ('scale', self.scale))
     
     def estimate(self, experiment):
@@ -199,16 +208,27 @@ class GaussianMixture1DPluginOp(PluginOpMixin, GaussianMixtureOp):
         return GaussianMixture1DPluginView(op = self, 
                                            **kwargs)
     
-    def should_clear_estimate(self, changed):
-        if changed == Changed.ESTIMATE:
-            return True
-        
-        return False
     
     def clear_estimate(self):
         self._gmms = {}
         self._scale = {}
         self.changed = (Changed.ESTIMATE_RESULT, self)
+        
+    def get_notebook_code(self, idx):
+        op = GaussianMixtureOp()
+        op.copy_traits(self, op.copyable_trait_names())      
+
+        return dedent("""
+        op_{idx} = {repr}
+        
+        op_{idx}.estimate(ex_{prev_idx}{subset})
+        ex_{idx} = op_{idx}.apply(ex_{prev_idx})
+        """
+        .format(repr = repr(op),
+                idx = idx,
+                prev_idx = idx - 1,
+                subset = ", subset = " + repr(self.subset) if self.subset else ""))
+    
         
 class GaussianMixture1DViewHandler(ViewHandlerMixin, Controller):
     def default_traits_view(self):
@@ -243,13 +263,13 @@ class GaussianMixture1DPluginView(PluginViewMixin, GaussianMixture1DView):
 
     def plot_wi(self, wi):
         if wi.result:
-            if wi.current_view_plot_names:
-                self.plot(wi.result, plot_name = wi.current_plot)
+            if self.plot_names:
+                self.plot(wi.result, plot_name = self.current_plot)
             else:
                 self.plot(wi.result)
         else:
-            if wi.current_view_plot_names:
-                self.plot(wi.previous_wi.result, plot_name = wi.current_plot)
+            if self.plot_names:
+                self.plot(wi.previous_wi.result, plot_name = self.current_plot)
             else:
                 self.plot(wi.previous_wi.result)
         
@@ -264,12 +284,23 @@ class GaussianMixture1DPluginView(PluginViewMixin, GaussianMixture1DView):
                 return self.enum_plots(wi.previous_wi.result)
             except:
                 return []
+            
+    def get_notebook_code(self, idx):
+        view = GaussianMixture1DView()
+        view.copy_traits(self, view.copyable_trait_names())
+        view.subset = self.subset
+        
+        return dedent("""
+        op_{idx}.default_view({traits}).plot(ex_{idx})
+        """
+        .format(traits = traits_str(view),
+                idx = idx))
 
 @provides(IOperationPlugin)
 class GaussianMixture1DPlugin(Plugin, PluginHelpMixin):
 
     id = 'edu.mit.synbio.cytoflowgui.op_plugins.gaussian_1d'
-    operation_id = 'edu.mit.synbio.cytoflow.operations.gaussian_1d'
+    operation_id = 'edu.mit.synbio.cytoflowgui.operations.gaussian_1d'
 
     short_name = "1D Mixture Model"
     menu_group = "Gates"
@@ -283,4 +314,26 @@ class GaussianMixture1DPlugin(Plugin, PluginHelpMixin):
     @contributes_to(OP_PLUGIN_EXT)
     def get_plugin(self):
         return self
+    
+@camel_registry.dumper(GaussianMixture1DPluginOp, 'gaussian-1d', version = 1)
+def _dump(op):
+    return dict(name = op.name,
+                channel = op.channel,
+                channel_scale = op.channel_scale,
+                num_components = op.num_components,
+                sigma = op.sigma,
+                by = op.by,
+                subset_list = op.subset_list)
+    
+@camel_registry.loader('gaussian-1d', version = 1)
+def _load(data, version):
+    return GaussianMixture1DPluginOp(**data)
+
+@camel_registry.dumper(GaussianMixture1DPluginView, 'gaussian-1d-view', version = 1)
+def _dump_view(view):
+    return dict(op = view.op)
+
+@camel_registry.loader('gaussian-1d-view', version = 1)
+def _load_view(data, version):
+    return GaussianMixture1DPluginView(**data)
     

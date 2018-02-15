@@ -200,7 +200,7 @@ class BeadCalibrationOp(HasStrictTraits):
     beads_frame = Instance(DataFrame)
     bead_peak_quantile = Int(80)
 
-    bead_brightness_threshold = Float(100)
+    bead_brightness_threshold = Float(100.0)
     bead_brightness_cutoff = Float(Undefined)
     bead_histogram_bins = Int(512)
     
@@ -460,7 +460,7 @@ class BeadCalibrationOp(HasStrictTraits):
         for channel in channels:
             new_experiment.data = \
                 new_experiment.data[new_experiment.data[channel] > 0]
-                
+                                
         new_experiment.data.reset_index(drop = True, inplace = True)
         
         for channel in channels:

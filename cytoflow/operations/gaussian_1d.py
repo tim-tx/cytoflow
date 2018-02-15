@@ -481,10 +481,10 @@ class GaussianMixture1DOp(HasStrictTraits):
                         if len(g) > 1:
                             g = tuple(g)
                         else:
-                            g = g[0]
+                            g = (g[0],)
                     else:
                         g = group
-                               
+
                     mean_stat.loc[g] = self._scale.inverse(gmm.means_[c][0])
                     stdev_stat.loc[g] = self._scale.inverse(np.sqrt(gmm.covariances_[c][0]))[0]
                     interval_stat.loc[g] = (self._scale.inverse(gmm.means_[c][0] - np.sqrt(gmm.covariances_[c][0][0])),

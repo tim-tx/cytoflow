@@ -20,8 +20,8 @@
 Gaussian Mixture Model (2D)
 ---------------------------
 
-Fit a Gaussian mixture model with a specified number of components to one 
-channel.
+Fit a Gaussian mixture model with a specified number of components to two 
+channels.
 
 If **Num Components** is greater than 1, then this module creates a new 
 categorical metadata variable named **Name**, with possible values 
@@ -44,17 +44,17 @@ estimating and applying a mixture model.
 
 .. note:: 
 
-    **Num Components** and **Sigma** withh be the same for each subset. 
+    **Num Components** and **Sigma** will be the same for each subset. 
     
 .. object:: Name
         
     The operation name; determines the name of the new metadata
         
-.. object:: Channel
+.. object:: X Channel, Y Channel
     
     The channels to apply the mixture model to.
 
-.. object:: Scale 
+.. object:: X Scale, Y Scale 
 
     Re-scale the data in **Channel** before fitting. 
 
@@ -104,7 +104,7 @@ from traitsui.api import View, Item, EnumEditor, Controller, VGroup, TextEditor,
                          CheckListEditor, ButtonEditor
 from envisage.api import Plugin, contributes_to
 from traits.api import (provides, Callable, List, Str, Dict, Any, Instance,
-                        DelegatesTo, Property, on_trait_change)
+                        DelegatesTo, Property, on_trait_change, Constant)
 from pyface.api import ImageResource
 
 import cytoflow.utility as util
@@ -119,6 +119,9 @@ from cytoflowgui.subset import ISubset, SubsetListEditor
 from cytoflowgui.color_text_editor import ColorTextEditor
 from cytoflowgui.op_plugins.i_op_plugin import PluginOpMixin, PluginHelpMixin
 from cytoflowgui.workflow import Changed
+from cytoflowgui.serialization import camel_registry, traits_repr, traits_str, dedent
+
+GaussianMixtureOp.__repr__ = traits_repr
 
 class GaussianMixture2DHandler(OpHandlerMixin, Controller):
     def default_traits_view(self):
@@ -130,9 +133,9 @@ class GaussianMixture2DHandler(OpHandlerMixin, Controller):
                     Item('ychannel',
                          editor=EnumEditor(name='context.previous_wi.channels'),
                          label = "Y Channel"),
-                    Item('x_channel_scale',
+                    Item('xscale',
                          label = "X Scale"),
-                    Item('y_channel_scale',
+                    Item('yscale',
                          label = "Y Scale"),
                     VGroup(
                     Item('num_components', 
@@ -160,19 +163,20 @@ class GaussianMixture2DHandler(OpHandlerMixin, Controller):
                     shared_op_traits)
 
 class GaussianMixture2DPluginOp(PluginOpMixin, GaussianMixtureOp):
+    id = Constant('edu.mit.synbio.cytoflowgui.operations.gaussian_2d')
+
     handler_factory = Callable(GaussianMixture2DHandler)
     
-    xchannel = Str
-    ychannel = Str
-    x_channel_scale = util.ScaleEnum(estimate = True)
-    y_channel_scale = util.ScaleEnum(estimate = True)
-    
+    xchannel = Str(estimate = True)
+    ychannel = Str(estimate = True)
+    xscale = util.ScaleEnum(estimate = True)
+    yscale = util.ScaleEnum(estimate = True)
+        
     # add "estimate" metadata
     num_components = util.PositiveInt(1, estimate = True)
     sigma = util.PositiveFloat(0.0, allow_zero = True, estimate = True)
     by = List(Str, estimate = True)
-    xscale = util.ScaleEnum(estimate = True)
-    yscale = util.ScaleEnum(estimate = True)
+
     
     _gmms = Dict(Any, Instance(mixture.GaussianMixture), transient = True)
     
@@ -185,43 +189,76 @@ class GaussianMixture2DPluginOp(PluginOpMixin, GaussianMixtureOp):
     def _get_subset(self):
         return " and ".join([subset.str for subset in self.subset_list if subset.str])
     
-    @on_trait_change('subset_list.str', post_init = True)
+    @on_trait_change('subset_list.str')
     def _subset_changed(self, obj, name, old, new):
         self.changed = (Changed.ESTIMATE, ('subset_list', self.subset_list))
         
 
     @on_trait_change('xchannel, ychannel')
     def _channel_changed(self):
-        self.channels = [self.xchannel, self.ychannel]
-        self.changed = (Changed.ESTIMATE, ('channels', self.channels))
-        
-    @on_trait_change('x_channel_scale, y_channel_scale')
-    def _scale_changed(self):
+        self.channels = []
+        self.scale = {}
         if self.xchannel:
-            self.scale[self.xchannel] = self.x_channel_scale
+            self.channels.append(self.xchannel)
+            
+            if self.xchannel in self.scale:
+                del self.scale[self.xchannel]
+                
+            self.scale[self.xchannel] = self.xscale
             
         if self.ychannel:
-            self.scale[self.ychannel] = self.y_channel_scale
+            self.channels.append(self.ychannel)
             
-        self.changed = (Changed.ESTIMATE, ('scale', self.scale))
+            if self.ychannel in self.scale:
+                del self.scale[self.ychannel]
+            
+            self.scale[self.ychannel] = self.yscale
+
+                
+    @on_trait_change('xscale, yscale')
+    def _scale_changed(self):
+        self.scale = {}
+
+        if self.xchannel:
+            self.scale[self.xchannel] = self.xscale
+            
+        if self.ychannel:
+            self.scale[self.ychannel] = self.yscale
+            
 
     def default_view(self, **kwargs):
         return GaussianMixture2DPluginView(op = self, **kwargs)
     
     def estimate(self, experiment):
+        if not self.xchannel:
+            raise util.CytoflowOpError('xchannel',
+                                       "Must set X channel")
+
+        if not self.ychannel:
+            raise util.CytoflowOpError('ychannel',
+                                       "Must set Y channel")          
+            
         super().estimate(experiment, subset = self.subset)
         self.changed = (Changed.ESTIMATE_RESULT, self)
     
     def clear_estimate(self):
         self._gmms.clear()
-        self._scale = {}
         self.changed = (Changed.ESTIMATE_RESULT, self)
+    
+    def get_notebook_code(self, idx):
+        op = GaussianMixtureOp()
+        op.copy_traits(self, op.copyable_trait_names())      
+
+        return dedent("""
+        op_{idx} = {repr}
         
-    def should_clear_estimate(self, changed):
-        if changed == Changed.ESTIMATE:
-            return True
-        
-        return False
+        op_{idx}.estimate(ex_{prev_idx}{subset})
+        ex_{idx} = op_{idx}.apply(ex_{prev_idx})
+        """
+        .format(repr = repr(op),
+                idx = idx,
+                prev_idx = idx - 1,
+                subset = ", subset = " + repr(self.subset) if self.subset else ""))
 
 class GaussianMixture2DViewHandler(ViewHandlerMixin, Controller):
     def default_traits_view(self):
@@ -250,19 +287,19 @@ class GaussianMixture2DPluginView(PluginViewMixin, GaussianMixture2DView):
     subset = DelegatesTo('op', transient = True)
     by = DelegatesTo('op', status = True)
     xchannel = DelegatesTo('op', 'xchannel', transient = True)
-    xscale = DelegatesTo('op', 'x_channel_scale', transient = True)
+    xscale = DelegatesTo('op', 'xscale', transient = True)
     ychannel = DelegatesTo('op', 'ychannel', transient = True)
-    yscale = DelegatesTo('op', 'y_channel_scale', transient = True)
+    yscale = DelegatesTo('op', 'yscale', transient = True)
     
     def plot_wi(self, wi):
         if wi.result:
-            if wi.current_view_plot_names:
-                self.plot(wi.result, plot_name = wi.current_plot)
+            if self.plot_names:
+                self.plot(wi.result, plot_name = self.current_plot)
             else:
                 self.plot(wi.result)
         else:
-            if wi.current_view_plot_names:
-                self.plot(wi.previous_wi.result, plot_name = wi.current_plot)
+            if self.plot_names:
+                self.plot(wi.previous_wi.result, plot_name = self.current_plot)
             else:
                 self.plot(wi.previous_wi.result)
         
@@ -277,13 +314,24 @@ class GaussianMixture2DPluginView(PluginViewMixin, GaussianMixture2DView):
                 return self.enum_plots(wi.previous_wi.result)
             except:
                 return []
+            
+    def get_notebook_code(self, idx):
+        view = GaussianMixture2DView()
+        view.copy_traits(self, view.copyable_trait_names())
+        view.subset = self.subset
+        
+        return dedent("""
+        op_{idx}.default_view({traits}).plot(ex_{idx})
+        """
+        .format(traits = traits_str(view),
+                idx = idx))
     
 
 @provides(IOperationPlugin)
 class GaussianMixture2DPlugin(Plugin, PluginHelpMixin):
     
     id = 'edu.mit.synbio.cytoflowgui.op_plugins.gaussian_2d'
-    operation_id = 'edu.mit.synbio.cytoflow.operations.gaussian_2d'
+    operation_id = 'edu.mit.synbio.cytoflowgui.operations.gaussian_2d'
 
     short_name = "2D Mixture Model"
     menu_group = "Gates"
@@ -298,3 +346,26 @@ class GaussianMixture2DPlugin(Plugin, PluginHelpMixin):
     def get_plugin(self):
         return self
     
+@camel_registry.dumper(GaussianMixture2DPluginOp, 'gaussian-2d', version = 1)
+def _dump(op):
+    return dict(name = op.name,
+                xchannel = op.xchannel,
+                ychannel = op.ychannel,
+                xscale = op.xscale,
+                yscale = op.yscale,
+                num_components = op.num_components,
+                sigma = op.sigma,
+                by = op.by,
+                subset_list = op.subset_list)
+    
+@camel_registry.loader('gaussian-2d', version = 1)
+def _load(data, version):
+    return GaussianMixture2DPluginOp(**data)
+
+@camel_registry.dumper(GaussianMixture2DPluginView, 'gaussian-2d-view', version = 1)
+def _dump_view(view):
+    return dict(op = view.op)
+
+@camel_registry.loader('gaussian-2d-view', version = 1)
+def _load_view(data, ver):
+    return GaussianMixture2DPluginView(**data)

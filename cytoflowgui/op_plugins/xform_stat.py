@@ -66,8 +66,11 @@ import cytoflow.utility as util
 
 from cytoflowgui.op_plugins import IOperationPlugin, OpHandlerMixin, OP_PLUGIN_EXT, shared_op_traits
 from cytoflowgui.subset import SubsetListEditor, ISubset
-from cytoflowgui.op_plugins.i_op_plugin import PluginOpMixin
+from cytoflowgui.op_plugins.i_op_plugin import PluginOpMixin, PluginHelpMixin
 from cytoflowgui.workflow import Changed
+from cytoflowgui.serialization import camel_registry, traits_repr, dedent
+
+TransformStatisticOp.__repr__ = traits_repr
 
 mean_95ci = lambda x: util.ci(x, np.mean, boots = 100)
 geomean_95ci = lambda x: util.ci(x, util.geom_mean, boots = 100)
@@ -159,7 +162,7 @@ class TransformStatisticHandler(OpHandlerMixin, Controller):
                          editor=EnumEditor(name='handler.previous_statistics_names'),
                          label = "Statistic"),
                     Item('statistic_name',
-                         editor = EnumEditor(values = list(transform_functions.keys())),
+                         editor = EnumEditor(values = sorted(transform_functions.keys())),
                          label = "Function"),
                     Item('by',
                          editor = CheckListEditor(cols = 2,
@@ -190,7 +193,7 @@ class TransformStatisticPluginOp(PluginOpMixin, TransformStatisticOp):
     def _get_subset(self):
         return " and ".join([subset.str for subset in self.subset_list if subset.str])
     
-    @on_trait_change('subset_list.str', post_init = True)
+    @on_trait_change('subset_list.str')
     def _subset_changed(self, obj, name, old, new):
         self.changed = (Changed.OPERATION, ('subset_list', self.subset_list))
     
@@ -203,11 +206,61 @@ class TransformStatisticPluginOp(PluginOpMixin, TransformStatisticOp):
         
         return TransformStatisticOp.apply(self, experiment)
 
+
+    def get_notebook_code(self, idx):
+        op = TransformStatisticOp()
+        op.copy_traits(self, op.copyable_trait_names())
+        
+        fn_import = {"Mean" : "from numpy import mean",
+                     "Geom.Mean" : None,
+                     "Count" : None,
+                     "Std.Dev" : "from numpy import std",
+                     "Geom.SD" : None,
+                     "SEM" : "from scipy.stats import sem",
+                     "Geom.SEM" : None,
+                     "Mean 95% CI" : "from numpy import mean\nmean_ci = lambda x: ci(x, mean, boots = 100)",
+                     "Geom.Mean 95% CI" : "geom_mean_ci = lambda x: ci(x, geom_mean, boots = 100)",
+                     "Sum" : "from numpy import sum",
+                     "Proportion" : "from pandas import Series; proportion = lambda a: Series(a / a.sum())",
+                     "Percentage" : "from pandas import Series; percentage = lambda a: Series(a / a.sum()) * 100.0",
+                     "Fold" : "from pandas import Series; fold = lambda a: Series(a / a.min())"
+                  }
+        
+        fn_name = {"Mean" : "mean",
+                   "Geom.Mean" : "geom_mean",
+                   "Count" : "len",
+                   "Std.Dev" : "std",
+                   "Geom.SD" : "geom_sd_range",
+                   "SEM" : "sem",
+                   "Geom.SEM" : "geom_sem_range",
+                   "Mean 95% CI" : "mean_ci",
+                   "Geom.Mean 95% CI" : "geom_mean_ci",
+                   "Sum" : "sum",
+                   "Proportion" : "proportion",
+                   "Percentage" : "percentage",
+                   "Fold" : "fold"
+                   }
+        
+        op.function = transform_functions[self.statistic_name]
+        op.function.__name__ = fn_name[self.statistic_name]
+        
+        return dedent("""
+        {import_statement}
+        op_{idx} = {repr}
+                
+        ex_{idx} = op_{idx}.apply(ex_{prev_idx})
+        """
+        .format(import_statement = (fn_import[self.statistic_name] + "\n" 
+                                    if fn_import[self.statistic_name] is not None
+                                    else ""),
+                repr = repr(op),
+                idx = idx,
+                prev_idx = idx - 1))
+        pass
+
+
 @provides(IOperationPlugin)
-class TransformStatisticPlugin(Plugin):
-    """
-    class docs
-    """
+class TransformStatisticPlugin(Plugin, PluginHelpMixin):
     
     id = 'edu.mit.synbio.cytoflowgui.op_plugins.transform_statistic'
     operation_id = 'edu.mit.synbio.cytoflow.operations.transform_statistic'
@@ -225,3 +278,16 @@ class TransformStatisticPlugin(Plugin):
     def get_plugin(self):
         return self
     
+### Serialization
+@camel_registry.dumper(TransformStatisticPluginOp, 'transform-statistic', version = 1)
+def _dump(op):
+    return dict(name = op.name,
+                statistic = op.statistic,
+                statistic_name = op.statistic_name,
+                by = op.by,
+                subset_list = op.subset_list)
+    
+@camel_registry.loader('transform-statistic', version = 1)
+def _load(data, version):
+    data['statistic'] = tuple(data['statistic'])
+    return TransformStatisticPluginOp(**data)

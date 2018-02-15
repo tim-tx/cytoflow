@@ -77,7 +77,8 @@ from traitsui.api import View, Item, EnumEditor, Controller, VGroup, HGroup, \
                          ButtonEditor, InstanceEditor
 from envisage.api import Plugin, contributes_to
 from traits.api import (provides, Callable, List, Str, HasTraits, Property,
-                        File, Event, Dict, Tuple, Float, on_trait_change)
+                        File, Event, Dict, Tuple, Float, on_trait_change,
+                        DelegatesTo)
 from pyface.api import ImageResource
 
 import cytoflow.utility as util
@@ -92,10 +93,16 @@ from cytoflowgui.color_text_editor import ColorTextEditor
 from cytoflowgui.op_plugins.i_op_plugin import PluginOpMixin, PluginHelpMixin
 from cytoflowgui.vertical_list_editor import VerticalListEditor
 from cytoflowgui.workflow import Changed
+from cytoflowgui.serialization import camel_registry, traits_repr, traits_str, dedent
+
+BleedthroughLinearOp.__repr__ = traits_repr
 
 class _Control(HasTraits):
     channel = Str
     file = File
+
+    def __repr__(self):
+        return traits_repr(self)
     
 class BleedthroughLinearHandler(OpHandlerMixin, Controller):
     
@@ -164,7 +171,7 @@ class BleedthroughLinearPluginOp(PluginOpMixin, BleedthroughLinearOp):
     def _get_subset(self):
         return " and ".join([subset.str for subset in self.subset_list if subset.str])
     
-    @on_trait_change('subset_list.str', post_init = True)
+    @on_trait_change('subset_list.str')
     def _subset_changed(self, obj, name, old, new):
         self.changed = (Changed.ESTIMATE, ('subset_list', self.subset_list))
     
@@ -191,7 +198,7 @@ class BleedthroughLinearPluginOp(PluginOpMixin, BleedthroughLinearOp):
         
         self.changed = (Changed.ESTIMATE_RESULT, self)
         
-    def should_clear_estimate(self, changed):
+    def should_clear_estimate(self, changed, payload):
         if changed == Changed.ESTIMATE:
             return True
         
@@ -200,6 +207,24 @@ class BleedthroughLinearPluginOp(PluginOpMixin, BleedthroughLinearOp):
     def clear_estimate(self):
         self.spillover.clear()
         self.changed = (Changed.ESTIMATE_RESULT, self)
+        
+    def get_notebook_code(self, idx):
+        op = BleedthroughLinearOp()
+        op.copy_traits(self, op.copyable_trait_names())
+
+        for control in self.controls_list:
+            op.controls[control.channel] = control.file        
+
+        return dedent("""
+        op_{idx} = {repr}
+        
+        op_{idx}.estimate(ex_{prev_idx}{subset})
+        ex_{idx} = op_{idx}.apply(ex_{prev_idx})
+        """
+        .format(repr = repr(op),
+                idx = idx,
+                prev_idx = idx - 1,
+                subset = ", subset = " + repr(self.subset) if self.subset else ""))
 
 class BleedthroughLinearViewHandler(ViewHandlerMixin, Controller):
     def default_traits_view(self):
@@ -217,15 +242,28 @@ class BleedthroughLinearViewHandler(ViewHandlerMixin, Controller):
 @provides(IView)
 class BleedthroughLinearPluginView(PluginViewMixin, BleedthroughLinearDiagnostic):
     handler_factory = Callable(BleedthroughLinearViewHandler)
+    subset = DelegatesTo('op')
     
     def plot_wi(self, wi):
         self.plot(wi.previous_wi.result)
         
-    def should_plot(self, changed):
+    def should_plot(self, changed, payload):
         if changed == Changed.ESTIMATE_RESULT:
             return True
         
         return False
+    
+    def get_notebook_code(self, idx):
+        view = BleedthroughLinearDiagnostic()
+        view.copy_traits(self, view.copyable_trait_names())
+        view.subset = self.subset
+        
+        return dedent("""
+        op_{idx}.default_view({traits}).plot(ex_{prev_idx})
+        """
+        .format(traits = traits_str(view),
+                idx = idx,
+                prev_idx = idx - 1))
 
 @provides(IOperationPlugin)
 class BleedthroughLinearPlugin(Plugin, PluginHelpMixin):
@@ -246,3 +284,30 @@ class BleedthroughLinearPlugin(Plugin, PluginHelpMixin):
     def get_plugin(self):
         return self
     
+### Serialization
+@camel_registry.dumper(BleedthroughLinearPluginOp, 'bleedthrough-linear', version = 1)
+def _dump(op):
+    return dict(controls_list = op.controls_list,
+                subset_list = op.subset_list)
+                
+@camel_registry.loader('bleedthrough-linear', version = 1)
+def _load(data, version):
+    return BleedthroughLinearPluginOp(**data)
+
+@camel_registry.dumper(_Control, 'bleedthrough-linear-control', version = 1)
+def _dump_control(control):
+    return dict(channel = control.channel,
+                file = control.file)
+    
+@camel_registry.loader('bleedthrough-linear-control', version = 1)
+def _load_control(data, version):
+    return _Control(**data)
+
+@camel_registry.dumper(BleedthroughLinearPluginView, 'bleedthrough-linear-view', version = 1)
+def _dump_view(view):
+    return dict(op = view.op)
+
+@camel_registry.loader('bleedthrough-linear-view', version = 1)
+def _load_view(data, version):
+    return BleedthroughLinearPluginView(**data)
+                

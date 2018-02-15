@@ -104,10 +104,17 @@ from cytoflowgui.color_text_editor import ColorTextEditor
 from cytoflowgui.op_plugins.i_op_plugin import PluginOpMixin, PluginHelpMixin
 from cytoflowgui.vertical_list_editor import VerticalListEditor
 from cytoflowgui.workflow import Changed
+from cytoflowgui.serialization import camel_registry, traits_repr, traits_str, dedent
+
+BeadCalibrationOp.__repr__ = traits_repr
 
 class _Unit(HasTraits):
     channel = Str
     unit = Str
+    
+    def __repr__(self):
+        return traits_repr(self)
+
 
 class BeadCalibrationHandler(OpHandlerMixin, Controller):
     
@@ -186,7 +193,7 @@ class BeadCalibrationPluginOp(PluginOpMixin, BeadCalibrationOp):
     units = Dict(Str, Str, transient = True)
 
     bead_peak_quantile = Int(80, estimate = True)
-    bead_brightness_threshold = Float(100, estimate = True)
+    bead_brightness_threshold = Float(100.0, estimate = True)
     bead_brightness_cutoff = Float(Undefined, estimate = True)
 
     @on_trait_change('units_list_items,units_list.+', post_init = True)
@@ -233,7 +240,7 @@ class BeadCalibrationPluginOp(PluginOpMixin, BeadCalibrationOp):
         self.changed = (Changed.ESTIMATE_RESULT, self)
 
     
-    def should_clear_estimate(self, changed):
+    def should_clear_estimate(self, changed, payload):
         if changed == Changed.ESTIMATE:
             return True
         
@@ -244,6 +251,28 @@ class BeadCalibrationPluginOp(PluginOpMixin, BeadCalibrationOp):
         self._peaks.clear()
         self._mefs.clear()
         self.changed = (Changed.ESTIMATE_RESULT, self)
+        
+    def get_notebook_code(self, idx):
+        op = BeadCalibrationOp()
+        op.copy_traits(self, op.copyable_trait_names())
+
+        for unit in self.units_list:
+            op.units[unit.channel] = unit.unit
+                    
+        op.beads = self.BEADS[self.beads_name]
+        
+
+        return dedent("""
+        # Beads: {beads}
+        op_{idx} = {repr}
+        
+        op_{idx}.estimate(ex_{prev_idx})
+        ex_{idx} = op_{idx}.apply(ex_{prev_idx})
+        """
+        .format(beads = self.beads_name,
+                repr = repr(op),
+                idx = idx,
+                prev_idx = idx - 1))
 
 class BeadCalibrationViewHandler(ViewHandlerMixin, Controller):
     def default_traits_view(self):
@@ -265,18 +294,29 @@ class BeadCalibrationPluginView(PluginViewMixin, BeadCalibrationDiagnostic):
     def plot_wi(self, wi):
         self.plot(wi.previous_wi.result)
         
-    def should_plot(self, changed):
+    def should_plot(self, changed, payload):
         if changed == Changed.ESTIMATE_RESULT:
             return True
         
         return False
     
+    def get_notebook_code(self, idx):
+        view = BeadCalibrationDiagnostic()
+        view.copy_traits(self, view.copyable_trait_names())
+        
+        return dedent("""
+        op_{idx}.default_view({traits}).plot(ex_{prev_idx})
+        """
+        .format(traits = traits_str(view),
+                idx = idx,
+                prev_idx = idx - 1))
+    
 
 @provides(IOperationPlugin)
 class BeadCalibrationPlugin(Plugin, PluginHelpMixin):
     
-    id = 'edu.mit.synbio.cytoflowgui.op_plugins.bead_calibrate'
-    operation_id = 'edu.mit.synbio.cytoflow.operations.bead_calibrate'
+    id = 'edu.mit.synbio.cytoflowgui.op_plugins.beads_calibrate'
+    operation_id = 'edu.mit.synbio.cytoflow.operations.beads_calibrate'
 
     short_name = "Bead Calibration"
     menu_group = "Calibration"
@@ -291,3 +331,34 @@ class BeadCalibrationPlugin(Plugin, PluginHelpMixin):
     def get_plugin(self):
         return self
     
+    
+### Serialization
+@camel_registry.dumper(BeadCalibrationPluginOp, 'bead-calibration', version = 1)
+def _dump(bead_op):
+    return dict(beads_name = bead_op.beads_name,
+                beads_file = bead_op.beads_file,
+                units_list = bead_op.units_list,
+                bead_peak_quantile = bead_op.bead_peak_quantile,
+                bead_brightness_threshold = bead_op.bead_brightness_threshold,
+                bead_brightness_cutoff = bead_op.bead_brightness_cutoff)
+    
+@camel_registry.loader('bead-calibration', version = 1)
+def _load(data, version):
+    return BeadCalibrationPluginOp(**data)
+
+@camel_registry.dumper(_Unit, 'bead-unit', version = 1)
+def _dump_unit(unit):
+    return dict(channel = unit.channel,
+                unit = unit.unit)
+    
+@camel_registry.loader('bead-unit', version = 1)
+def _load_unit(data, version):
+    return _Unit(**data)
+
+@camel_registry.dumper(BeadCalibrationPluginView, 'bead-calibration-view', version = 1)
+def _dump_view(view):
+    return dict(op = view.op)
+
+@camel_registry.loader('bead-calibration-view', version = 1)
+def _load_view(data, version):
+    return BeadCalibrationPluginView(**data)

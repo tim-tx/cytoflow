@@ -29,7 +29,7 @@ except:
     # if there's no console, this fails
     pass
 
-import sys, multiprocessing, os, logging, traceback, threading
+import sys, multiprocessing, logging, traceback, threading
 
 from traits.etsconfig.api import ETSConfig
 ETSConfig.toolkit = 'qt4'
@@ -82,75 +82,28 @@ def run_gui():
                      logging.ERROR,
                      logging.FATAL] [ int(msg_type) ]
         logging.log(log_level, 'Qt message: ' + msg_string.decode('utf-8'))
-        
-    ## monkey-patch envisage for a py3k bug.  this is fixed in envisage HEAD,
-    ## so check for version
-    import envisage
-    if envisage.__version__ == '4.6.0':
-        import pickle
-        from envisage.ui.tasks.tasks_application import TasksApplication, TasksApplicationState
-        logger = logging.getLogger(__name__)
-        logger.info("Monkey-patching envisage 4.6.0")
-        
-        def _envisage_load_state(self):
-            """ Loads saved application state, if possible.
-            """
-            state = TasksApplicationState()
-            filename = os.path.join(self.state_location, 'application_memento')
-            if os.path.exists(filename):
-                # Attempt to unpickle the saved application state.
-                try:
-                    with open(filename, 'rb') as f:
-                        restored_state = pickle.load(f)
-                    if state.version == restored_state.version:
-                        state = restored_state
-                    else:
-                        logger.warn('Discarding outdated application layout')
-                except:
-                    # If anything goes wrong, log the error and continue.
-                    logger.exception('Restoring application layout from %s',
-                                     filename)
-                    
-            self._state = state
-        
-        def _envisage_save_state(self):
-            """ Saves the application state.
-            """
-            # Grab the current window layouts.
-            window_layouts = [w.get_window_layout() for w in self.windows]
-            self._state.previous_window_layouts = window_layouts
-        
-            # Attempt to pickle the application state.
-            filename = os.path.join(self.state_location, 'application_memento')
-            try:
-                with open(filename, 'wb') as f:
-                    pickle.dump(self._state, f)
-            except:
-                # If anything goes wrong, log the error and continue.
-                logger.exception('Saving application layout')
-        
-        TasksApplication._load_state = _envisage_load_state
-        TasksApplication._save_state = _envisage_save_state
     
     from envisage.core_plugin import CorePlugin
     from envisage.ui.tasks.tasks_plugin import TasksPlugin
     from pyface.image_resource import ImageResource
     
     from cytoflowgui.flow_task import FlowTaskPlugin
+    from cytoflowgui.tasbe_task import TASBETaskPlugin
     from cytoflowgui.cytoflow_application import CytoflowApplication
     from cytoflowgui.op_plugins import (ImportPlugin, ThresholdPlugin, RangePlugin, QuadPlugin,
                             Range2DPlugin, PolygonPlugin, BinningPlugin,
                             GaussianMixture1DPlugin, GaussianMixture2DPlugin,
-                            BleedthroughLinearPlugin, #BleedthroughPiecewisePlugin,
+                            BleedthroughLinearPlugin, BleedthroughPiecewisePlugin,
                             BeadCalibrationPlugin, AutofluorescencePlugin,
                             ColorTranslationPlugin, TasbePlugin, 
                             ChannelStatisticPlugin, TransformStatisticPlugin, 
-                            RatioPlugin)
+                            RatioPlugin, DensityGatePlugin, FlowPeaksPlugin,
+                            KMeansPlugin, PCAPlugin)
     
     from cytoflowgui.view_plugins import (HistogramPlugin, Histogram2DPlugin, ScatterplotPlugin,
-                              BarChartPlugin, Stats1DPlugin, Kde1DPlugin, #Kde2DPlugin,
-                              ViolinPlotPlugin, TablePlugin, Stats2DPlugin)
-#    assert(multiprocessing.get_start_method() == "spawn")
+                              BarChartPlugin, Stats1DPlugin, Kde1DPlugin, Kde2DPlugin,
+                              ViolinPlotPlugin, TablePlugin, Stats2DPlugin, DensityPlugin,
+                              ParallelCoordinatesPlugin, RadvizPlugin)
     
     from cytoflow.utility.custom_traits import Removed, Deprecated
     Removed.gui = True
@@ -190,8 +143,7 @@ def run_gui():
     
     sys.excepthook = log_excepthook
 
-    plugins = [CorePlugin(), TasksPlugin(), FlowTaskPlugin(debug = debug,
-                                                           remote_connection = remote_connection)]    
+    plugins = [CorePlugin(), TasksPlugin(), FlowTaskPlugin(), TASBETaskPlugin()]    
     
     # reverse of the order on the toolbar
     view_plugins = [TablePlugin(),
@@ -200,7 +152,10 @@ def run_gui():
                     BarChartPlugin(),
                     ViolinPlotPlugin(),
 #                     Kde2DPlugin(),    # disabled until we can make it faster
+                    RadvizPlugin(),
+                    ParallelCoordinatesPlugin(),
                     Kde1DPlugin(),
+                    DensityPlugin(),
                     Histogram2DPlugin(),
                     ScatterplotPlugin(),
                     HistogramPlugin()]
@@ -208,6 +163,10 @@ def run_gui():
     plugins.extend(view_plugins)
     
     op_plugins = [RatioPlugin(),
+                  PCAPlugin(),
+                  KMeansPlugin(),
+                  FlowPeaksPlugin(),
+                  DensityGatePlugin(),
                   TransformStatisticPlugin(),
                   ChannelStatisticPlugin(),
                   TasbePlugin(),
@@ -236,6 +195,7 @@ def run_gui():
     app = CytoflowApplication(id = 'edu.mit.synbio.cytoflow',
                               plugins = plugins,
                               icon = icon,
+                              remote_connection = remote_connection,
                               debug = debug)
     app.run()
     remote_process.join()

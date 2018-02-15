@@ -21,7 +21,7 @@ cytoflow.views.base_views
 -------------------------
 '''
 
-from traits.api import HasStrictTraits, Str, Tuple, provides
+from traits.api import HasStrictTraits, Str, Tuple, List, Dict, provides
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 
@@ -93,6 +93,9 @@ class BaseView(HasStrictTraits):
             If plotting a huefacet with many values, use this object for color
             scale normalization.
         """
+        if experiment is None:
+            raise util.CytoflowViewError('experiment',
+                                         "No experiment specified")
 
         col_wrap = kwargs.pop('col_wrap', None)
         
@@ -219,11 +222,16 @@ class BaseView(HasStrictTraits):
     
                     mpl.colorbar.ColorbarBase(cax, 
                                               cmap = cmap, 
-                                              norm = hue_scale.color_norm(), 
+                                              norm = hue_scale.norm(), 
                                               label = self.huefacet)
                     plt.sca(plot_ax)
                 else:
                     g.add_legend(title = self.huefacet)
+                    ax = g.axes.flat[0]
+                    legend = ax.legend_
+                    for lh in legend.legendHandles:
+                        lh.set_alpha(0.5)
+                    
                     
     def _grid_plot(self, experiment, grid, xlim, ylim, xscale, yscale, **kwargs):
         raise NotImplementedError("You must override _grid_plot in a derived class")
@@ -242,6 +250,9 @@ class BaseDataView(BaseView):
         underlying dataframe to `BaseView.plot`
 
         """
+        if experiment is None:
+            raise util.CytoflowViewError('experiment',
+                                         "No experiment specified")
 
         if self.xfacet and self.xfacet not in experiment.conditions:
             raise util.CytoflowViewError('xfacet',
@@ -456,8 +467,99 @@ class Base2DView(BaseDataView):
                      yscale = yscale, 
                      **kwargs)        
 
-class BaseNDView(BaseView):
-    pass
+class BaseNDView(BaseDataView):
+    """
+    A data view that plots data from one or more channels.
+    
+    Attributes
+    ----------
+    channels : List(Str)
+        The channels to view
+
+    scale : Dict(Str : {"linear", "logicle", "log"})
+        Re-scale the data in the specified channels before plotting.  If a 
+        channel isn't specified, assume that the scale is linear.
+    """
+    
+    channels = List(Str)
+    scale = Dict(Str, util.ScaleEnum)
+
+    def plot(self, experiment, **kwargs):
+        """
+        Parameters
+        ----------
+        min_quantile : float (>0.0 and <1.0, default = 0.001)
+            Clip data that is less than this quantile.
+            
+        max_quantile : float (>0.0 and <1.0, default = 1.00)
+            Clip data that is greater than this quantile.
+            
+        lim : Dict(Str : (float, float))
+            Set the range of each channel's axis.  If unspecified, assume
+            that the limits are the minimum and maximum of the clipped data
+        """
+
+        if experiment is None:
+            raise util.CytoflowViewError('experiment',
+                                         "No experiment specified")
+
+        if len(self.channels) == 0:
+            raise util.CytoflowOpError('channels',
+                                       "Must set at least one channel")
+
+        for c in self.channels:
+            if c not in experiment.data:
+                raise util.CytoflowOpError('channels',
+                                           "Channel {0} not found in the experiment"
+                                      .format(c))
+                
+        for c in self.scale:
+            if c not in self.channels:
+                raise util.CytoflowOpError('scale',
+                                           "Scale set for channel {0}, but it isn't "
+                                           "in 'channels'"
+                                           .format(c))
+       
+        
+        # get the scale
+        scale = {}
+        for c in self.channels:
+            if c in self.scale:
+                scale[c] = util.scale_factory(self.scale[c], experiment, channel = c)
+            else:
+                scale[c] = util.scale_factory(util.get_default_scale(), experiment, channel = c)
+        
+        # adjust the limits to clip extreme values
+        min_quantile = kwargs.pop("min_quantile", 0.001)
+        max_quantile = kwargs.pop("max_quantile", 1.0) 
+        
+        if min_quantile < 0.0 or min_quantile > 1:
+            raise util.CytoflowViewError('min_quantile',
+                                         "min_quantile must be between 0 and 1")
+
+        if max_quantile < 0.0 or max_quantile > 1:
+            raise util.CytoflowViewError('max_quantile',
+                                         "max_quantile must be between 0 and 1")     
+        
+        if min_quantile >= max_quantile:
+            raise util.CytoflowViewError('min_quantile',
+                                         "min_quantile must be less than max_quantile")   
+            
+        lim = kwargs.pop("lim", {})
+        
+        for c in self.channels:
+            if c not in lim:
+                lim[c] = (experiment[c].quantile(min_quantile),
+                          experiment[c].quantile(max_quantile))
+                
+            lim[c] = [scale[c].clip(x) for x in lim[c]]
+    
+        
+        super().plot(experiment, 
+                     lim = lim,
+                     scale = scale,
+                     **kwargs)        
+
     
 
 @provides(IView)
@@ -508,6 +610,7 @@ class BaseStatisticsView(BaseView):
         class plot_enum(object):
             
             def __init__(self, data, by):
+                self.by = by
                 self._iter = None
                 self._returned = False
                 
@@ -665,10 +768,17 @@ class Base1DStatisticsView(BaseStatisticsView):
     error_statistic = Tuple(Str, Str)
     
     def enum_plots(self, experiment):
+        if experiment is None:
+            raise util.CytoflowViewError('experiment',
+                                         "No experiment specified")
         data = self._make_data(experiment)
         return super().enum_plots(experiment, data)
     
-    def plot(self, experiment, plot_name = None, **kwargs):       
+    def plot(self, experiment, plot_name = None, **kwargs):
+        if experiment is None:
+            raise util.CytoflowViewError('experiment',
+                                         "No experiment specified")
+               
         data = self._make_data(experiment)
         
         if not self.variable:
@@ -725,6 +835,13 @@ class Base1DStatisticsView(BaseStatisticsView):
             error_stat = None
          
         if error_stat is not None:
+
+            try:
+                error_stat.index = error_stat.index.reorder_levels(stat.index.names)
+                error_stat.sort_index(inplace = True)
+            except AttributeError:
+                pass
+            
             if not stat.index.equals(error_stat.index):
                 raise util.CytoflowViewError('error_statistic',
                                              "Data statistic and error statistic "
@@ -775,10 +892,17 @@ class Base2DStatisticsView(BaseStatisticsView):
     y_error_statistic = Tuple(Str, Str)
     
     def enum_plots(self, experiment):
+        if experiment is None:
+            raise util.CytoflowViewError('experiment',
+                                         "No experiment specified")
         data = self._make_data(experiment)
         return super().enum_plots(experiment, data)
     
     def plot(self, experiment, plot_name = None, **kwargs):
+        if experiment is None:
+            raise util.CytoflowViewError('experiment',
+                                         "No experiment specified")
+        
         data = self._make_data(experiment)
 
         xscale = util.scale_factory(self.xscale, 
@@ -828,6 +952,13 @@ class Base2DStatisticsView(BaseStatisticsView):
             x_error_stat = None
             
         if x_error_stat is not None:
+               
+            try:
+                x_error_stat.index = x_error_stat.index.reorder_levels(xstat.index.names)
+                x_error_stat.sort_index(inplace = True)
+            except AttributeError:
+                pass
+            
             if not xstat.index.equals(x_error_stat.index):
                 raise util.CytoflowViewError('x_error_statistic',
                                              "Data statistic and error statistic "
@@ -863,6 +994,13 @@ class Base2DStatisticsView(BaseStatisticsView):
             y_error_stat = None
          
         if y_error_stat is not None:
+            
+            try:
+                y_error_stat.index = y_error_stat.index.reorder_levels(ystat.index.names)
+                y_error_stat.sort_index(inplace = True)
+            except AttributeError:
+                pass
+            
             if not ystat.index.equals(y_error_stat.index):
                 raise util.CytoflowViewError('y_error_statistic',
                                              "Data statistic and error statistic "

@@ -92,6 +92,7 @@ Import FCS files and associate them with experimental conditions (metadata.)
             and **True/False**.
 
 """
+from textwrap import dedent
 
 from traitsui.api import View, Item, Controller, TextEditor
 from traits.api import Button, Property, cached_property, provides, Callable, \
@@ -100,14 +101,16 @@ from pyface.api import OK as PyfaceOK
 from envisage.api import Plugin, contributes_to
 
 import cytoflow.utility as util
-from cytoflow import ImportOp
+from cytoflow import Tube, ImportOp
 from cytoflow.operations.i_operation import IOperation
                        
+from cytoflowgui.serialization import camel_registry, traits_repr
 from cytoflowgui.import_dialog import ExperimentDialog
 from cytoflowgui.op_plugins import IOperationPlugin, OpHandlerMixin, OP_PLUGIN_EXT, shared_op_traits
 from cytoflowgui.toggle_button import ToggleButtonEditor
 from cytoflowgui.op_plugins.i_op_plugin import PluginOpMixin, PluginHelpMixin
 
+ImportOp.__repr__ = Tube.__repr__ = traits_repr
 
 class ImportHandler(OpHandlerMixin, Controller):
     
@@ -175,12 +178,23 @@ class ImportPluginOp(PluginOpMixin, ImportOp):
     ret_events = util.PositiveInt(0, allow_zero = True, status = True)
     
     def apply(self, experiment = None):
-        ret = super(ImportPluginOp, self).apply(experiment = experiment)
+        ret = super().apply(experiment = experiment)
         self.ret_events = len(ret.data)
 
         return ret
     
+    
+    def get_notebook_code(self, idx):
+        op = ImportOp()
+        op.copy_traits(self, op.copyable_trait_names())
+        
+        return dedent("""
+            op_{idx} = {repr}
             
+            ex_{idx} = op_{idx}.apply()"""
+            .format(repr = repr(op),
+                    idx = idx))
+
 @provides(IOperationPlugin)
 class ImportPlugin(Plugin, PluginHelpMixin):
     
@@ -199,3 +213,28 @@ class ImportPlugin(Plugin, PluginHelpMixin):
     @contributes_to(OP_PLUGIN_EXT)
     def get_plugin(self):
         return self
+    
+### Serialization
+    
+@camel_registry.dumper(ImportPluginOp, 'import', version = 1)
+def _dump_op(op):
+    return dict(tubes = op.tubes,
+                conditions = op.conditions,
+                channels = op.channels,
+                events = op.events,
+                name_metadata = op.name_metadata,
+                ret_events = op.ret_events)
+
+@camel_registry.loader('import', version = 1)
+def _load_op(data, version):
+    return ImportPluginOp(**data)
+
+@camel_registry.dumper(Tube, 'tube', version = 1)
+def _dump_tube(tube):
+    return dict(file = tube.file,
+                conditions = tube.conditions)
+
+@camel_registry.loader('tube', version = 1)
+def _load_tube(data, version):
+    return Tube(**data)
+            

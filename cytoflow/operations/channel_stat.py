@@ -231,6 +231,9 @@ class ChannelStatisticOp(HasStrictTraits):
             if len(data_subset) == 0:
                 continue
             
+            if not isinstance(group, tuple):
+                group = (group,)
+            
             try:
                 stat.loc[group] = self.function(data_subset[self.channel])
             except Exception as e:
@@ -239,7 +242,7 @@ class ChannelStatisticOp(HasStrictTraits):
                                            .format(group)) from e
             
             # check for, and warn about, NaNs.
-            if np.any(np.isnan(stat.loc[group])):
+            if stat.loc[list(group)].isna().any():
                 warn("Found NaN in category {} returned {}"
                      .format(group, stat.loc[group]), 
                      util.CytoflowOpWarning)
