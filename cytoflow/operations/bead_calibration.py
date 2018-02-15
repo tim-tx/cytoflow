@@ -38,6 +38,9 @@ import cytoflow.utility as util
 from .i_operation import IOperation
 from .import_op import check_tube, Tube, ImportOp
 
+from pandas import DataFrame
+from ..experiment import Experiment
+
 @provides(IOperation)
 class BeadCalibrationOp(HasStrictTraits):
     """
@@ -194,6 +197,7 @@ class BeadCalibrationOp(HasStrictTraits):
     units = Dict(Str, Str)
     
     beads_file = File(exists = True)
+    beads_frame = Instance(DataFrame)
     bead_peak_quantile = Int(80)
 
     bead_brightness_threshold = Float(100)
@@ -224,7 +228,7 @@ class BeadCalibrationOp(HasStrictTraits):
         if experiment is None:
             raise util.CytoflowOpError('experiment', "No experiment specified")
         
-        if not self.beads_file:
+        if not self.beads_file and not self.beads_frame:
             raise util.CytoflowOpError('beads_file', "No beads file specified")
 
         if not set(self.units.keys()) <= set(experiment.channels):
@@ -237,11 +241,41 @@ class BeadCalibrationOp(HasStrictTraits):
                                        "Units don't match beads.")
                         
         # make a little Experiment
-        check_tube(self.beads_file, experiment)
-        beads_exp = ImportOp(tubes = [Tube(file = self.beads_file)],
-                             channels = {experiment.metadata[c]["fcs_name"] : c for c in experiment.channels},
-                             name_metadata = experiment.metadata['name_metadata']).apply()
-        
+        if ( self.blank_file != '' ):
+            check_tube(self.beads_file, experiment)
+            beads_exp = ImportOp(tubes = [Tube(file = self.beads_file)],
+                                 channels = {experiment.metadata[c]["fcs_name"] : c for c in experiment.channels},
+                                 name_metadata = experiment.metadata['name_metadata']).apply()
+        else:
+            # caveat: make sure experiment channel names map to dataframe channels
+            beads_exp = Experiment()
+            beads_exp.metadata["name_metadata"] = experiment.metadata['name_metadata']
+            arg_channels = {experiment.metadata[c]["fcs_name"] : c for c in experiment.channels}
+            for old_name, new_name in arg_channels.items():
+                if old_name != new_name and new_name != util.sanitize_identifier(new_name):
+                    raise util.CytoflowOpError("Channel name {} must be a "
+                                               "valid Python identifier."
+                                               .format(new_name))
+
+            channels = list(arg_channels.keys())
+
+            for channel in channels:
+                beads_exp.add_channel(channel)
+                beads_exp.metadata[channel]["fcs_name"] = channel
+
+            beads_exp.add_events(self.beads_frame[channels], {})
+
+            for channel in channels:
+                if channel in arg_channels:
+                    new_name = arg_channels[channel]
+                    if channel == new_name:
+                        continue
+                    beads_exp.data.rename(columns = {channel : new_name}, inplace = True)
+                    beads_exp.metadata[new_name] = beads_exp.metadata[channel]
+                    beads_exp.metadata[new_name]["fcs_name"] = channel
+                    del beads_exp.metadata[channel]
+
+
         channels = list(self.units.keys())
 
         for channel in channels:
@@ -563,10 +597,44 @@ class BeadCalibrationDiagnostic(HasStrictTraits):
 
         # make a little Experiment
         try:
-            check_tube(self.op.beads_file, experiment)
-            beads_exp = ImportOp(tubes = [Tube(file = self.op.beads_file)],
-                                 channels = {experiment.metadata[c]["fcs_name"] : c for c in experiment.channels},
-                                 name_metadata = experiment.metadata['name_metadata']).apply()
+            if ( self.op.beads_file != '' ):
+                check_tube(self.op.beads_file, experiment)
+                beads_exp = ImportOp(tubes = [Tube(file = self.op.beads_file)],
+                                     channels = {experiment.metadata[c]["fcs_name"] : c for c in experiment.channels},
+                                     name_metadata = experiment.metadata['name_metadata']).apply()
+            else:
+                # caveat: make sure experiment channel names map to dataframe channels
+                beads_exp = Experiment()
+                beads_exp.metadata["name_metadata"] = experiment.metadata['name_metadata']
+                arg_channels = {experiment.metadata[c]["fcs_name"] : c for c in experiment.channels}
+                for old_name, new_name in arg_channels.items():
+                    if old_name != new_name and new_name != util.sanitize_identifier(new_name):
+                        raise util.CytoflowOpError("Channel name {} must be a "
+                                                   "valid Python identifier."
+                                                   .format(new_name))
+
+                channels = list(arg_channels.keys())
+
+                for channel in channels:
+                    beads_exp.add_channel(channel)
+                    beads_exp.metadata[channel]["fcs_name"] = channel
+
+                beads_exp.add_events(self.op.beads_frame[channels], {})
+
+                for channel in channels:
+                    if channel in arg_channels:
+                        new_name = arg_channels[channel]
+                        if channel == new_name:
+                            continue
+                        beads_exp.data.rename(columns = {channel : new_name}, inplace = True)
+                        beads_exp.metadata[new_name] = beads_exp.metadata[channel]
+                        beads_exp.metadata[new_name]["fcs_name"] = channel
+                        del beads_exp.metadata[channel]
+
+                # check_tube(self.op.beads_file, experiment)
+                # beads_exp = ImportOp(tubes = [Tube(file = self.op.beads_file)], 
+                #                      channels = {experiment.metadata[c]["fcs_name"] : c for c in experiment.channels},
+                #                      name_metadata = experiment.metadata['name_metadata']).apply()
         except util.CytoflowOpError as e:
             raise util.CytoflowViewError('op', e.__str__()) from e
 
