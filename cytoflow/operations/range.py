@@ -21,10 +21,9 @@ cytoflow.operations.range
 -------------------------
 '''
 
-from traits.api import (HasStrictTraits, CFloat, Str, CStr, Instance, Bool, 
+from traits.api import (HasStrictTraits, Float, Str, Instance, Bool, 
                         provides, on_trait_change, Any, Constant)
 
-from matplotlib.widgets import SpanSelector, Cursor
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D    
 
@@ -87,7 +86,19 @@ class RangeOp(HasStrictTraits):
     .. plot::
         :context: close-figs
         
-        >>> range_op.default_view(scale = 'log').plot(ex)
+        >>> rv = range_op.default_view(scale = 'log')
+        >>> rv.plot(ex)
+        
+        
+    .. note::
+       If you want to use the interactive default view in a Jupyter notebook,
+       make sure you say ``%matplotlib notebook`` in the first cell 
+       (instead of ``%matplotlib inline`` or similar).  Then call 
+       ``default_view()`` with ``interactive = True``::
+       
+           rv = range_op.default_view(scale = 'log',
+                                      interactive = True)
+           rv.plot(ex)
         
     Apply the gate, and show the result
     
@@ -106,10 +117,12 @@ class RangeOp(HasStrictTraits):
     id = Constant('edu.mit.synbio.cytoflow.operations.range')
     friendly_id = Constant('Range')
     
-    name = CStr()
-    channel = Str()
-    low = CFloat()
-    high = CFloat()
+    name = Str
+    channel = Str
+    low = Float
+    high = Float
+    
+    _selection_view = Instance('RangeSelection', transient = True)
         
     def apply(self, experiment):
         """Applies the range gate to an experiment.
@@ -172,7 +185,9 @@ class RangeOp(HasStrictTraits):
         return new_experiment
     
     def default_view(self, **kwargs):
-        return RangeSelection(op = self, **kwargs)
+        self._selection_view = RangeSelection(op = self)
+        self._selection_view.trait_set(**kwargs)
+        return self._selection_view
     
 @provides(ISelectionView)
 class RangeSelection(Op1DView, HistogramView):
@@ -218,12 +233,11 @@ class RangeSelection(Op1DView, HistogramView):
 
     # internal state.
     _ax = Any(transient = True)
-    _span = Instance(SpanSelector, transient = True)
-    _cursor = Instance(Cursor, transient = True)
+    _span = Instance(util.SpanSelector, transient = True)
     _low_line = Instance(Line2D, transient = True)
     _high_line = Instance(Line2D, transient = True)
     _hline = Instance(Line2D, transient = True)
-        
+            
     def plot(self, experiment, **kwargs):
         """
         Plot the underlying histogram and then plot the selection on top of it.
@@ -271,21 +285,11 @@ class RangeSelection(Op1DView, HistogramView):
     @on_trait_change('interactive', post_init = True)
     def _interactive(self):
         if self._ax and self.interactive:
-            self._cursor = Cursor(self._ax, 
-                                  horizOn=False, 
-                                  vertOn=True, 
-                                  color='blue', 
-                                  useblit = True)
-            
-            self._span = SpanSelector(self._ax, 
-                                      onselect=self._onselect, 
-                                      direction='horizontal',
-                                      rectprops={'alpha':0.3,
-                                                 'color':'grey'},
-                                      span_stays=False,
-                                      useblit = True)
+            self._span = util.SpanSelector(self._ax, 
+                                           onselect=self._onselect, 
+                                           span_stays=False,
+                                           useblit = True)
         else:
-            self._cursor = None
             self._span = None
         
     

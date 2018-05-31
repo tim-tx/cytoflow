@@ -22,7 +22,7 @@ cytoflow.operations.bead_calibration
 """
 
 from traits.api import (HasStrictTraits, Str, File, Dict, Bool, Int, List, 
-                        Float, Constant, provides, Undefined, Callable, Any,
+                        Float, Constant, provides, Callable, Any,
                         Instance)
 import numpy as np
 import math
@@ -52,7 +52,7 @@ class BeadCalibrationOp(HasStrictTraits):
     
     To use, set :attr:`beads_file` to an FCS file containing events collected *using
     the same cytometer settings as the data you're calibrating*.  Specify which 
-    beads you ran by setting :attr:`beads_type` to match one of the  values of 
+    beads you ran by setting :attr:`beads` to match one of the  values of 
     :data:`BeadCalibrationOp.BEADS`; and set :attr:`units` to which channels you 
     want calibrated and in which units.  Then, call :meth:`estimate()` and check the 
     peak-finding with :meth:`default_view().plot()`.  If the peak-finding is wacky, 
@@ -201,7 +201,7 @@ class BeadCalibrationOp(HasStrictTraits):
     bead_peak_quantile = Int(80)
 
     bead_brightness_threshold = Float(100.0)
-    bead_brightness_cutoff = Float(Undefined)
+    bead_brightness_cutoff = util.FloatOrNone(None)
     bead_histogram_bins = Int(512)
     
     # TODO - bead_brightness_threshold should probably be different depending
@@ -211,6 +211,7 @@ class BeadCalibrationOp(HasStrictTraits):
     
     beads = Dict(Str, List(Float))
 
+    _histograms = Dict(Str, Any, transient = True)
     _calibration_functions = Dict(Str, Callable, transient = True)
     _peaks = Dict(Str, Any, transient = True)
     _mefs = Dict(Str, Any, transient = True)
@@ -239,6 +240,11 @@ class BeadCalibrationOp(HasStrictTraits):
         if not set(self.units.values()) <= set(self.beads.keys()):
             raise util.CytoflowOpError('units',
                                        "Units don't match beads.")
+            
+        self._histograms.clear()
+        self._calibration_functions.clear()
+        self._peaks.clear()
+        self._mefs.clear()
                         
         # make a little Experiment
         channels = {experiment.metadata[c]["fcs_name"] : c for c in experiment.channels}
@@ -261,7 +267,7 @@ class BeadCalibrationOp(HasStrictTraits):
             # TODO - this assumes the data is on a linear scale.  check it!
             data_range = experiment.metadata[channel]['range']
 
-            if self.bead_brightness_cutoff is Undefined:
+            if self.bead_brightness_cutoff is None:
                 cutoff = 0.7 * data_range
             else:
                 cutoff = self.bead_brightness_cutoff
@@ -277,6 +283,8 @@ class BeadCalibrationOp(HasStrictTraits):
             
             # smooth it with a Savitzky-Golay filter
             hist_smooth = scipy.signal.savgol_filter(hist[0], 5, 1)
+            
+            self._histograms[channel] = (hist_bins, hist_smooth)
             
             # find peaks
             peak_bins = scipy.signal.find_peaks_cwt(hist_smooth, 
@@ -463,7 +471,9 @@ class BeadCalibrationOp(HasStrictTraits):
             see the diagnostic plots
         """
 
-        return BeadCalibrationDiagnostic(op = self, **kwargs)
+        v = BeadCalibrationDiagnostic(op = self)
+        v.trait_set(**kwargs)
+        return v
     
     # this silliness is necessary to squash the repr() call in sphinx.autodoc
     class _Beads(dict):
@@ -476,27 +486,37 @@ class BeadCalibrationOp(HasStrictTraits):
     {
      # from http://www.spherotech.com/RCP-30-5a%20%20rev%20H%20ML%20071712.xls
      "Spherotech RCP-30-5A Lot AG01, AF02, AD04 and AAE01" :
-        { "MECSB" : [216, 464, 1232, 2940, 7669, 19812, 35474],
-          "MEBFP" : [861, 1997, 5776, 15233, 45389, 152562, 396759],
-          "MEFL" :  [792, 2079, 6588, 16471, 47497, 137049, 271647],
-          "MEPE" :  [531, 1504, 4819, 12506, 36159, 109588, 250892],
-          "MEPTR" : [233, 669, 2179, 5929, 18219, 63944, 188785],
-          "MECY" : [1614, 4035, 12025, 31896, 95682, 353225, 1077421],
-          "MEPCY7" : [14916, 42336, 153840, 494263],
-          "MEAP" :  [373, 1079, 3633, 9896, 28189, 79831, 151008],
-          "MEAPCY7" : [2864, 7644, 19081, 37258]},
+        { "MECSB" :   [216,   464,   1232,   2940,  7669,  19812,  35474],
+          "MEBFP" :   [861,   1997,  5776,   15233, 45389, 152562, 396759],
+          "MEFL" :    [792,   2079,  6588,   16471, 47497, 137049, 271647],
+          "MEPE" :    [531,   1504,  4819,   12506, 36159, 109588, 250892],
+          "MEPTR" :   [233,   669,   2179,   5929,  18219, 63944,  188785],
+          "MECY" :    [1614,  4035,  12025,  31896, 95682, 353225, 1077421],
+          "MEPCY7" :  [14916, 42336, 153840, 494263],
+          "MEAP" :    [373,   1079,  3633,   9896,  28189, 79831,  151008],
+          "MEAPCY7" : [2864,  7644,  19081,  37258]},
      # from http://www.spherotech.com/RCP-30-5a%20%20rev%20G.2.xls
      "Spherotech RCP-30-5A Lot AA01-AA04, AB01, AB02, AC01, GAA01-R":
-        { "MECSB" : [179, 400, 993, 3203, 6083, 17777, 36331],
-          "MEBFP" : [700, 1705, 4262, 17546, 35669, 133387, 412089],
-          "MEFL" :  [692, 2192, 6028, 17493, 35674, 126907, 290983],
-          "MEPE" :  [505, 1777, 4974, 13118, 26757, 94930, 250470],
-          "MEPTR" : [207, 750, 2198, 6063, 12887, 51686, 170219],
-          "MECY" :  [1437, 4693, 12901, 36837, 76621, 261671, 1069858],
-          "MEPCY7" : [32907, 107787, 503797],
-          "MEAP" :  [587, 2433, 6720, 17962, 30866, 51704, 146080],
-          "MEAPCY7" : [718, 1920, 5133, 9324, 14210, 26735]}
-    })
+        { "MECSB" :   [179,   400,    993,   3203,  6083,  17777,  36331],
+          "MEBFP" :   [700,   1705,   4262,  17546, 35669, 133387, 412089],
+          "MEFL" :    [692,   2192,   6028,  17493, 35674, 126907, 290983],
+          "MEPE" :    [505,   1777,   4974,  13118, 26757, 94930,  250470],
+          "MEPTR" :   [207,   750,    2198,  6063,  12887, 51686,  170219],
+          "MECY" :    [1437,  4693,   12901, 36837, 76621, 261671, 1069858],
+          "MEPCY7" :  [32907, 107787, 503797],
+          "MEAP" :    [587,   2433,   6720,  17962, 30866, 51704,  146080],
+          "MEAPCY7" : [718,   1920,   5133,  9324,  14210, 26735]},
+    "Spherotech URCP-100-2H (9 peaks)":
+        {
+          "MEFL" :    [3531, 11373, 34643, 107265, 324936, 835306,  2517654, 6069240],
+          "MEPE" :    [2785, 9525,  28421, 90313,  275589, 713181,  2209251, 5738784],
+          "MEPTR" :   [1158, 4161,  12528, 41140,  130347, 344149,  1091393, 2938710],
+          "MEPCY" :   [6501, 20302, 59517, 183870, 550645, 1569470, 5109318, 17854584],
+          "MEPCY7" :  [4490, 10967, 30210, 87027,  283621, 975312,  4409101, 24259524],
+          "MEAP" :    [369,  749,   3426,  10413,  50013,  177490,  500257,  1252120],
+          "MEAPCY7" : [1363, 2656,  9791,  25120,  96513,  328967,  864905,  2268931],
+          "MECSB" :   [989,  2959,  8277,  25524,  71603,  173069,  491388,  1171641],
+          "MEBFP" :   [1957, 5579,  16005, 53621,  168302, 459809,  1581762, 4999251]}})
     """
     A dictionary containing the calibrated beads that Cytoflow currently knows
     about.  The available bead sets, the fluorophores and the laser / filter 
@@ -525,6 +545,19 @@ class BeadCalibrationOp(HasStrictTraits):
       - **MEPCY7** (PE-Cy7, 488 --> 750 LP)
       - **MEAP** (APC, 633 --> 665/20)
       - **MEAPCY7** (APC-Cy7, 635 --> 750 LP)      
+      
+    - **Spherotech URCP-100-2H (9 peaks)
+    
+      - **MECSB** (Cascade Blue, 405 --> 450/50)
+      - **MEBFP** (BFP, 405 --> 530/40)
+      - **MEFL** (Flurosceine, 488 --> 530/40)
+      - **MEPE** (Phycoerythrin, 488 --> 575/25)
+      - **MEPTR** (PE-Texas Red, 488 --> 613/20)
+      - **MECY** (Cy5, 488 --> 680/30)
+      - **MEPCY7** (PE-Cy7, 488 --> 750 LP)
+      - **MEAP** (APC, 633 --> 665/20)
+      - **MEAPCY7** (APC-Cy7, 635 --> 750 LP)    
+      
     """
             
 
@@ -572,40 +605,14 @@ class BeadCalibrationDiagnostic(HasStrictTraits):
         if not channels:
             raise util.CytoflowViewError(None, "No channels to plot")
 
-        # make a little Experiment
-        try:
-            channels = {experiment.metadata[c]["fcs_name"] : c for c in experiment.channels}
-            name_metadata = experiment.metadata['name_metadata']
-            if (self.op.beads_file):
-                check_tube(self.op.beads_file, experiment)
-                beads_exp = ImportOp(tubes = [Tube(file = self.op.beads_file)],
-                                     channels = channels,
-                                     name_metadata = name_metadata).apply()
-            else:
-                beads_exp = ImportOp(tubes = [Tube(frame = self.op.beads_frame)],
-                                     channels = channels,
-                                     name_metadata = name_metadata).apply()
-        except util.CytoflowOpError as e:
-            raise util.CytoflowViewError('op', e.__str__()) from e
+        if set(channels) != set(self.op._histograms.keys()):
+            raise util.CytoflowViewError(None, "You must estimate the parameters "
+                                               "before plotting")
 
         plt.figure()
         
-        for idx, channel in enumerate(channels):
-            if channel not in beads_exp.channels:
-                raise util.CytoflowViewError(None, "Channel {} not in the beads!"
-                                             .format(channel))
-            data = beads_exp.data[channel]
-            data_range = experiment.metadata[channel]['range']
-                
-            # bin the data on a log scale            
-            hist_bins = np.logspace(1, math.log(data_range, 2), num = self.op.bead_histogram_bins, base = 2)
-            hist = np.histogram(data, bins = hist_bins)
-            
-            # mask off-scale values
-            hist[0][0] = 0
-            hist[0][-1] = 0
-            
-            hist_smooth = scipy.signal.savgol_filter(hist[0], 5, 1)
+        for idx, channel in enumerate(channels):            
+            hist_bins, hist_smooth = self.op._histograms[channel]
                 
             plt.subplot(len(channels), 2, 2 * idx + 1)
             plt.xscale('log')

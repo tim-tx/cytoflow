@@ -23,7 +23,7 @@ cytoflow.operations.color_translation
 import math
 
 from traits.api import (HasStrictTraits, Str, File, Dict, Any, Callable,
-                        Instance, Tuple, Bool, Constant, provides)
+                        Instance, Tuple, Bool, Constant, provides, Float)
 import numpy as np
 import matplotlib.pyplot as plt
 import sklearn.mixture
@@ -141,6 +141,8 @@ class ColorTranslationOp(HasStrictTraits):
     # TODO - why can't i make the value List(Float)?
     _coefficients = Dict(Tuple(Str, Str), Any, transient = True)
     _trans_fn = Dict(Tuple(Str, Str), Callable, transient = True)
+    _sample = Dict(Tuple(Str, Str), Any, transient = True)
+    _means = Dict(Tuple(Str, Str), Tuple(Float, Float), transient = True)
 
     def estimate(self, experiment, subset = None): 
         """
@@ -165,6 +167,11 @@ class ColorTranslationOp(HasStrictTraits):
         if not self.controls and not self.controls_frames:
             raise util.CytoflowOpError('controls',
                                        "No controls specified")
+            
+        self._coefficients.clear()
+        self._trans_fn.clear()
+        self._sample.clear()
+        self._means.clear()
 
         tubes = {}
 
@@ -226,7 +233,7 @@ class ColorTranslationOp(HasStrictTraits):
                                                    "Subset string '{0}' returned no events"
                                               .format(subset))
                 
-                tube_data = tube_exp.data                
+                tube_data = tube_exp.data    
 
                 tubes[tube_file_or_frame] = tube_data
 
@@ -237,6 +244,8 @@ class ColorTranslationOp(HasStrictTraits):
             
             _ = data.reset_index(drop = True, inplace = True)
             
+            self._sample[(from_channel, to_channel)] = data.sample(n = 5000)
+            
             data[from_channel] = np.log10(data[from_channel])
             data[to_channel] = np.log10(data[to_channel])
             
@@ -244,6 +253,9 @@ class ColorTranslationOp(HasStrictTraits):
                 gmm = sklearn.mixture.BayesianGaussianMixture(n_components=2,
                                                               random_state = 1)
                 fit = gmm.fit(data)
+                
+                self._means[(from_channel), (to_channel)] = \
+                    (10 ** fit.means_[0][0], 10 ** fit.means_[1][0])
 
                 # pick the component with the maximum mean
                 idx = 0 if fit.means_[0][0] > fit.means_[1][0] else 1
@@ -357,7 +369,9 @@ class ColorTranslationOp(HasStrictTraits):
             see the diagnostic plots
         """
 
-        return ColorTranslationDiagnostic(op = self, **kwargs)
+        v = ColorTranslationDiagnostic(op = self)
+        v.trait_set(**kwargs)
+        return v
     
 @provides(cytoflow.views.IView)
 class ColorTranslationDiagnostic(HasStrictTraits):
@@ -421,78 +435,26 @@ class ColorTranslationDiagnostic(HasStrictTraits):
         plt_idx = 0
         
         for from_channel, to_channel in translation.items():
-            
-            if (from_channel, to_channel) not in controls:
-                raise util.CytoflowViewError('op',
-                                             "Control file for {0} --> {1} not specified"
-                                             .format(from_channel, to_channel))
-            tube_file_or_frame = controls[(from_channel, to_channel)]
-            
-            if tube_file_or_frame not in tubes: 
-                # make a little Experiment
-                try:
-                    channels = {experiment.metadata[c]["fcs_name"] : c for c in experiment.channels}
-                    name_metadata = experiment.metadata['name_metadata']
-                    if (self.op.controls != {}):
-                        # make a little Experiment
-                        check_tube(tube_file_or_frame, experiment)
-                        tube_exp = ImportOp(tubes = [Tube(file = tube_file_or_frame)],
-                                            channels = channels,
-                                            name_metadata = name_metadata).apply()
-                    else:
-                        tube_exp = ImportOp(tubes = [Tube(frame = tube_file_or_frame)],
-                                            channels = channels,
-                                            name_metadata = name_metadata).apply()
-                    
-                except util.CytoflowOpError as e:
-                    raise util.CytoflowViewError('translation', e.__str__()) from e
-                
-                # apply previous operations
-                for op in experiment.history:
-                    tube_exp = op.apply(tube_exp)
-                    
-                tube_data = tube_exp.data
-
-                # subset the events
-                if self.subset:
-                    try:
-                        tube_exp = tube_exp.query(self.subset)
-                    except Exception as e:
-                        raise util.CytoflowViewError('subset',
-                                                     "Subset string '{0}' isn't valid"
-                                                     .format(self.subset)) from e
-                                    
-                    if len(tube_exp.data) == 0:
-                        raise util.CytoflowViewError('subset',
-                                                     "Subset string '{0}' returned no events"
-                                                     .format(self.subset))
-                
-                tube_data = tube_exp.data                
-
-                tubes[tube_file_or_frame] = tube_data               
-                
-            from_range = experiment.metadata[from_channel]['range']
-            to_range = experiment.metadata[to_channel]['range']
-            data = tubes[tube_file_or_frame][[from_channel, to_channel]]
-            data = data[data[from_channel] > 0]
-            data = data[data[to_channel] > 0]
-            _ = data.reset_index(drop = True, inplace = True)
+#             from_range = experiment.metadata[from_channel]['range']
+#             to_range = experiment.metadata[to_channel]['range']
+            data = self.op._sample[(from_channel, to_channel)]
+            from_min = data[from_channel].quantile(0.01)
+            from_max = data[from_channel].quantile(0.99)
+            to_min = data[to_channel].quantile(0.01)
+            to_max = data[to_channel].quantile(0.99)
 
             if self.op.mixture_model:    
                 plt.subplot(num_plots, 2, plt_idx * 2 + 2)
                 plt.xscale('log', nonposx='mask')
-                hist_bins = np.logspace(1, math.log(from_range, 2), num = 128, base = 2)
+                hist_bins = np.logspace(1, math.log(data[from_channel].max(), 2), num = 128, base = 2)
                 _ = plt.hist(data[from_channel],
                              bins = hist_bins,
                              histtype = 'stepfilled',
                              antialiased = True)
                 plt.xlabel(from_channel)
-                
-                gmm = sklearn.mixture.GaussianMixture(n_components=2)
-                fit = gmm.fit(np.log10(data[from_channel][:, np.newaxis]))
                     
-                plt.axvline(10 ** fit.means_[0][0], color = 'r')
-                plt.axvline(10 ** fit.means_[1][0], color = 'r')
+                plt.axvline(self.op._means[(from_channel, to_channel)][0], color = 'r')
+                plt.axvline(self.op._means[(from_channel, to_channel)][1], color = 'r')
 
             
             num_cols = 2 if self.op.mixture_model else 1
@@ -501,8 +463,8 @@ class ColorTranslationDiagnostic(HasStrictTraits):
             plt.yscale('log', nonposy = 'mask')
             plt.xlabel(from_channel)
             plt.ylabel(to_channel)
-            plt.xlim(1, from_range)
-            plt.ylim(1, to_range)
+            plt.xlim(from_min, from_max)
+            plt.ylim(to_min, to_max)
             
             kwargs.setdefault('alpha', 0.2)
             kwargs.setdefault('s', 1)
@@ -512,7 +474,7 @@ class ColorTranslationDiagnostic(HasStrictTraits):
                         data[to_channel],
                         **kwargs)          
 
-            xs = np.logspace(1, math.log(from_range, 2), num = 256, base = 2)
+            xs = np.logspace(1, math.log(data[from_channel].max(), 2), num = 256, base = 2)
             trans_fn = self.op._trans_fn[(from_channel, to_channel)]
             plt.plot(xs, trans_fn(xs), "--g")
             

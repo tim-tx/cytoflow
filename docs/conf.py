@@ -51,8 +51,10 @@ extensions = [
     'sphinx.ext.autosummary',
     'sphinx.ext.napoleon',
     'sphinx.ext.mathjax',
+    'sphinx.ext.intersphinx',
     'plot_directive',
-    'embedded_builder'
+    'embedded_builder',
+    'fulltoc'
 ]
 
 if tags.has("embedded_help"):  # @UndefinedVariable
@@ -79,9 +81,14 @@ plot_pre_code = "import matplotlib.pyplot as plt; plt.switch_backend('agg')"
 # plot_apply_rcparams = True
 # plot_pre_code = 'import matplotlib; matplotlib.use("Agg")'
 
+# intersphinx config
+intersphinx_mapping = {'pandas' : ('http://pandas.pydata.org/pandas-docs/stable/', None),
+                       'envisage' : ('http://docs.enthought.com/envisage/', None),
+                       'traits' : ('http://docs.enthought.com/traits/', None)} 
+
 
 # Add any paths that contain templates here, relative to this directory.
-templates_path = ['_templates']
+# templates_path = ['_templates']
 
 # The suffix of source filenames.
 source_suffix = '.rst'
@@ -96,6 +103,12 @@ master_doc = 'index'
 project = u'Cytoflow'
 import time
 copyright = u'Massachusetts Institute of Technology 2015-{}'.format(time.strftime("%Y"))
+
+# Configure the sidebar
+
+# # Configure the footer
+# if tags.has("embedded_help"):  # @UndefinedVariable
+#     templates_path = ['embedded_templates']
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
@@ -150,12 +163,14 @@ pygments_style = 'sphinx'
 
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
-#html_theme = 'sphinx_rtd_theme'
+# html_theme = 'alabaster'
 
 # Theme options are theme-specific and customize the look and feel of a theme
 # further.  For a list of options available for each theme, see the
 # documentation.
-#html_theme_options = {}
+html_theme_options = {'show_powered_by' : False}
+
+html_sidebars = { '**': ['about.html', 'globaltoc.html', 'relations.html', 'sourcelink.html', 'searchbox.html'], }
 
 # Add any paths that contain custom themes here, relative to this directory.
 #html_theme_path = []
@@ -349,7 +364,7 @@ def run_apidoc(app):
             os.unlink(f)
     except FileNotFoundError:
         pass
-    
+     
     if app.builder.name == 'embedded_help':  # @UndefinedVariable
         module = os.path.join(cur_dir,"..","cytoflowgui")
         main([None, '-T', '-e', '-E', '-f', '-o', cur_dir, module, module + "/tests/*"])    

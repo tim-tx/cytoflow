@@ -56,7 +56,7 @@ are the same across each subset, though.
     fit the model separately to each subset of the data with a unique 
     combination of ``Time`` and ``Dox``.
         
-..object:: Whiten
+.. object:: Whiten
 
     Scale each component to unit variance?  May be useful if you will
     be using unsupervized clustering (such as K-means).
@@ -162,7 +162,7 @@ class PCAPluginOp(PluginOpMixin, PCAOp):
     channels = List(Str, transient = True)
     scale = Dict(Str, util.ScaleEnum, transient = True)
     by = List(Str, estimate = True)
-    num_components = util.PositiveInt(2, allow_zero = False, estimate = True)
+    num_components = util.PositiveCInt(2, allow_zero = False, estimate = True)
     whiten = Bool(False, estimate = True)
 
     @on_trait_change('channels_list_items, channels_list.+', post_init = True)

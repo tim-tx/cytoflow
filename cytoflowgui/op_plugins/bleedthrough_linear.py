@@ -206,6 +206,7 @@ class BleedthroughLinearPluginOp(PluginOpMixin, BleedthroughLinearOp):
         
     def clear_estimate(self):
         self.spillover.clear()
+        self._sample.clear()
         self.changed = (Changed.ESTIMATE_RESULT, self)
         
     def get_notebook_code(self, idx):
@@ -242,7 +243,7 @@ class BleedthroughLinearViewHandler(ViewHandlerMixin, Controller):
 @provides(IView)
 class BleedthroughLinearPluginView(PluginViewMixin, BleedthroughLinearDiagnostic):
     handler_factory = Callable(BleedthroughLinearViewHandler)
-    subset = DelegatesTo('op')
+    subset = DelegatesTo('op', transient = True)
     
     def plot_wi(self, wi):
         self.plot(wi.previous_wi.result)

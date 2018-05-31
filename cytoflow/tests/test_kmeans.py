@@ -28,24 +28,18 @@ import matplotlib
 matplotlib.use('Agg')
 
 import cytoflow as flow
-import cytoflow.utility as util
+from test_base import ImportedDataTest  # @UnresolvedImport
 
-class TestKMeans(unittest.TestCase):
+class TestKMeans(ImportedDataTest):
 
     def setUp(self):
-        self.cwd = os.path.dirname(os.path.abspath(__file__)) + "/data/Plate01/"
-        tube1 = flow.Tube(file = self.cwd + 'RFP_Well_A3.fcs', conditions = {"Dox" : 10.0})
-        tube2 = flow.Tube(file= self.cwd + 'CFP_Well_A4.fcs', conditions = {"Dox" : 1.0})
-        import_op = flow.ImportOp(conditions = {"Dox" : "float"},
-                                  tubes = [tube1, tube2])
-        self.ex = import_op.apply()
+        ImportedDataTest.setUp(self)
 
         self.op = flow.KMeansOp(name = "KM",
                                 channels = ["V2-A", "Y2-A"],
                                 scale = {"V2-A" : "logicle",
                                          "Y2-A" : "logicle"},
                                 num_clusters = 2)
-
         
     def testEstimate(self):
         self.op.estimate(self.ex)
@@ -53,16 +47,23 @@ class TestKMeans(unittest.TestCase):
         self.assertEqual(len(ex2['KM'].unique()), 2)
         
     def testEstimateBy(self):
-        self.op.by = ["Dox"]
+        self.op.by = ["Well"]
         self.op.estimate(self.ex)
         
         ex2 = self.op.apply(self.ex)
         self.assertEqual(len(ex2['KM'].unique()), 2)
 
+    def testEstimateBy2(self):
+        self.op.by = ["Well", "Dox"]
+        self.op.estimate(self.ex)
+        
+        ex2 = self.op.apply(self.ex)
+        self.assertEqual(len(ex2['KM'].unique()), 2)
+        
     def testPlot(self):
         self.op.estimate(self.ex)
         self.op.default_view().plot(self.ex)
 
 if __name__ == "__main__":
-    #import sys;sys.argv = ['', 'Test.testName']
+#     import sys;sys.argv = ['', 'TestKMeans.testEstimateBy1Channel']
     unittest.main()

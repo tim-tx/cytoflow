@@ -89,6 +89,7 @@ class CytoflowApplication(TasksApplication):
         try:
             console_handler = logging.StreamHandler()
             console_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s:%(name)s:%(message)s"))
+            console_handler.setLevel(logging.DEBUG if self.debug else logging.ERROR)
             logging.getLogger().addHandler(console_handler)
         except:
             # if there's no console, this fails
@@ -97,6 +98,7 @@ class CytoflowApplication(TasksApplication):
         ## capture log in memory
         mem_handler = logging.StreamHandler(self.application_log)
         mem_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s:%(name)s:%(message)s"))
+        mem_handler.setLevel(logging.DEBUG)
         logging.getLogger().addHandler(mem_handler)
          
         ## and display gui messages for exceprions
@@ -106,6 +108,8 @@ class CytoflowApplication(TasksApplication):
          
         # must redirect to the gui thread
         self.on_trait_change(self.show_error, 'application_error', dispatch = 'ui')
+        
+        # monkey-patch traitsui.qt4.text_editor.SimpleEditor._
         
         # set up the model
         self.model = Workflow(remote_connection = self.remote_connection,
@@ -122,10 +126,20 @@ class CytoflowApplication(TasksApplication):
                     "Afterwards, may need to restart Cytoflow to continue working.\n\n" 
                     + error_string)
         
-    def exit(self, force=False):
+    def stop(self):
+        super().stop()
         self.model.shutdown_remote_process()
+#         
+#         
+#     def exit(self, force=False):
+# 
+#         ret = TasksApplication.exit(self, force=force)
+#         
+#         if ret:
+#             self.model.shutdown_remote_process()
+#             
+#         return ret
         
-        return TasksApplication.exit(self, force=force)
 
     preferences_helper = Instance(CytoflowPreferences)
 
@@ -163,7 +177,7 @@ class CytoflowApplication(TasksApplication):
         Saves the application state -- ONLY IF THE CYTOFLOW TASK IS ACTIVE
         
         """
-        if self.active_window.active_task.id != "edu.mit.synbio.cytoflow.flow_task":
+        if self.active_window.active_task.id != "edu.mit.synbio.cytoflowgui.flow_task":
             logger.info("Not saving application layout from TASBE task")
             return
         

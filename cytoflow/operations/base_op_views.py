@@ -22,6 +22,7 @@ cytoflow.operations.base_op_views
 '''
 
 from warnings import warn
+import collections
 
 from traits.api import (provides, Instance, Property, List, DelegatesTo)
 
@@ -294,10 +295,10 @@ class By2DView(ByView, Op2DView):
 @provides(IView)
 class NullView(BaseDataView):
     """
-    An :class:`IView` that doesn't actually do an plotting.
+    An :class:`IView` that doesn't actually do any plotting.
     """
     
-    def _grid_plot(self, experiment, grid, xlim, ylim, xscale, yscale, **kwargs):
+    def _grid_plot(self, experiment, grid, **kwargs):
         return {}
 
 
@@ -305,7 +306,7 @@ class NullView(BaseDataView):
 class AnnotatingView(BaseDataView):
     """
     A :class:`IView` that plots an underlying data plot, then plots some
-    annotations on top of it.  See :class:`~.GaussianMixture1DView` for an
+    annotations on top of it.  See :class:`~.gaussian.GaussianMixture1DView` for an
     example.  By default, it assumes that the annotations are to be plotted
     in the same color as the view's :attr:`huefacet`, and sets :attr:`huefacet`
     accordingly if the annotation isn't already set to a different facet.
@@ -345,7 +346,7 @@ class AnnotatingView(BaseDataView):
                      annotation_facet = annotation_facet,
                      **kwargs)
         
-    def _grid_plot(self, experiment, grid, xlim, ylim, xscale, yscale, **kwargs):
+    def _grid_plot(self, experiment, grid, **kwargs):
         
         # pop the annotation stuff off of kwargs so the underlying data plotter 
         # doesn't get confused
@@ -356,7 +357,8 @@ class AnnotatingView(BaseDataView):
         color = kwargs.get('color', None)
 
         # plot the underlying data plots
-        plot_ret = super()._grid_plot(experiment, grid, xlim, ylim, xscale, yscale, **kwargs)
+        plot_ret = super()._grid_plot(experiment, grid, **kwargs)
+        kwargs.update(plot_ret)
                         
         # plot the annotations on top
         for (i, j, k), _ in grid.facet_data():
@@ -369,9 +371,9 @@ class AnnotatingView(BaseDataView):
             facets = [x for x in [row_name, col_name, hue_name] if x is not None]
             
             if plot_name is not None:
-                try:
+                if isinstance(plot_name, collections.Iterable) and not isinstance(plot_name, str):
                     plot_name = list(plot_name)
-                except TypeError:
+                else:
                     plot_name = [plot_name]
                     
                 annotation_name = plot_name + facets
@@ -380,10 +382,11 @@ class AnnotatingView(BaseDataView):
                 
             annotation = None
             for group, a in annotations.items():
-                try:
+                if isinstance(group, collections.Iterable) and not isinstance(group, str):
                     g_set = set(group)
-                except TypeError:
+                else:
                     g_set = set([group])
+                    
                 if g_set == set(annotation_name):
                     annotation = a
                     
@@ -410,14 +413,11 @@ class AnnotatingView(BaseDataView):
             annotation_color = grid._facet_color(k, color)
                 
             self._annotation_plot(ax, 
-                                  xlim, 
-                                  ylim, 
-                                  xscale, 
-                                  yscale, 
                                   annotation, 
                                   annotation_facet, 
                                   annotation_value, 
-                                  annotation_color)
+                                  annotation_color,
+                                  **kwargs)
 
         return plot_ret
  

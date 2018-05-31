@@ -26,6 +26,10 @@ import warnings
 warnings.filterwarnings('ignore', '.*IPython widgets are experimental.*')
 warnings.filterwarnings('ignore', 'axes.color_cycle is deprecated and replaced with axes.prop_cycle')
 
+# set seaborn defaults
+import seaborn
+seaborn.set()
+
 # basics
 from .experiment import Experiment
 from .operations.import_op import ImportOp, Tube
@@ -87,10 +91,6 @@ from .utility.util_functions import (geom_mean, geom_sd, geom_sd_range,
 from .utility.algorithms import (ci, percentiles)
 from .utility.scale import set_default_scale, get_default_scale
 
-import subprocess
-import os
-try:
-    cf_cwd =  os.path.dirname(__file__)
-    __version__ = subprocess.check_output(["git", "describe", "--always"], cwd = cf_cwd).rstrip().decode("utf-8")
-except (subprocess.CalledProcessError, OSError):
-    __version__ = "0.8.0"
+from ._version import get_versions  # @UnresolvedImport
+__version__ = get_versions()['version']
+del get_versions

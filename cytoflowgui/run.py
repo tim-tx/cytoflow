@@ -61,7 +61,7 @@ def log_excepthook(typ, val, tb):
 def run_gui():
     debug = ("--debug" in sys.argv)
 
-    remote_process, remote_connection = start_remote_process(debug)
+    remote_process, remote_connection = start_remote_process()
     
     # We want matplotlib to use our backend .... in both the GUI and the
     # remote process
@@ -72,6 +72,10 @@ def run_gui():
     # getting real tired of the matplotlib deprecation warnings
     import warnings
     warnings.filterwarnings('ignore', '.*is deprecated and replaced with.*')
+    
+    # monkey patch the resource manager to use SVGs for icons
+    import pyface.resource.resource_manager
+    pyface.resource.resource_manager.ResourceManager.IMAGE_EXTENSIONS.append('.svg')
     
     from traits.api import push_exception_handler
                              
@@ -89,6 +93,7 @@ def run_gui():
     
     from cytoflowgui.flow_task import FlowTaskPlugin
     from cytoflowgui.tasbe_task import TASBETaskPlugin
+    from cytoflowgui.export_task import ExportFigurePlugin
     from cytoflowgui.cytoflow_application import CytoflowApplication
     from cytoflowgui.op_plugins import (ImportPlugin, ThresholdPlugin, RangePlugin, QuadPlugin,
                             Range2DPlugin, PolygonPlugin, BinningPlugin,
@@ -126,24 +131,23 @@ def run_gui():
 
         sys.exit(1)
         
-    from pyface.qt.QtCore import qInstallMsgHandler  # @UnresolvedImport
-    qInstallMsgHandler(QtMsgHandler)
+    #from pyface.qt.QtCore import qInstallMsgHandler  # @UnresolvedImport
+    #qInstallMsgHandler(QtMsgHandler)
     
     # if we're frozen, add _MEIPASS to the pyface search path for icons etc
     if getattr(sys, 'frozen', False):
         from pyface.resource_manager import resource_manager
         resource_manager.extra_paths.append(sys._MEIPASS)    # @UndefinedVariable
 
-
-        
     # install a global (gui) error handler for traits notifications
     push_exception_handler(handler = log_notification_handler,
-                           reraise_exceptions = debug, 
+                           reraise_exceptions = False, 
                            main = True)
     
     sys.excepthook = log_excepthook
 
-    plugins = [CorePlugin(), TasksPlugin(), FlowTaskPlugin(), TASBETaskPlugin()]    
+    plugins = [CorePlugin(), TasksPlugin(), FlowTaskPlugin(), TASBETaskPlugin(),
+               ExportFigurePlugin()]    
     
     # reverse of the order on the toolbar
     view_plugins = [TablePlugin(),
@@ -151,7 +155,7 @@ def run_gui():
                     Stats1DPlugin(),
                     BarChartPlugin(),
                     ViolinPlotPlugin(),
-#                     Kde2DPlugin(),    # disabled until we can make it faster
+                    Kde2DPlugin(),
                     RadvizPlugin(),
                     ParallelCoordinatesPlugin(),
                     Kde1DPlugin(),
@@ -201,7 +205,7 @@ def run_gui():
     remote_process.join()
     logging.shutdown()
     
-def start_remote_process(debug):
+def start_remote_process():
 
         # communications channels
         parent_workflow_conn, child_workflow_conn = multiprocessing.Pipe()  
@@ -214,8 +218,7 @@ def start_remote_process(debug):
                                                  args = [parent_workflow_conn,
                                                          parent_mpl_conn,
                                                          log_q,
-                                                         running_event,
-                                                         debug])
+                                                         running_event])
         
         remote_process.daemon = True
         remote_process.start() 
@@ -229,7 +232,7 @@ def start_remote_process(debug):
         
         return (remote_process, (child_workflow_conn, child_matplotlib_conn, log_q))
     
-def remote_main(parent_workflow_conn, parent_mpl_conn, log_q, running_event, debug):
+def remote_main(parent_workflow_conn, parent_mpl_conn, log_q, running_event):
     # We want matplotlib to use our backend .... in both the GUI and the
     # remote process.  Must be called BEFORE cytoflow is imported
     
@@ -241,7 +244,7 @@ def remote_main(parent_workflow_conn, parent_mpl_conn, log_q, running_event, deb
     
     # install a global (gui) error handler for traits notifications
     push_exception_handler(handler = log_notification_handler,
-                           reraise_exceptions = debug, 
+                           reraise_exceptions = False,
                            main = True)
     
     sys.excepthook = log_excepthook
@@ -252,7 +255,8 @@ def remote_main(parent_workflow_conn, parent_mpl_conn, log_q, running_event, deb
         
 def monitor_remote_process(proc):
     proc.join()
-    logging.error("Remote process exited with {}".format(proc.exitcode))
+    if proc.exitcode:
+        logging.error("Remote process exited with {}".format(proc.exitcode))
 
 if __name__ == '__main__':
     multiprocessing.freeze_support()

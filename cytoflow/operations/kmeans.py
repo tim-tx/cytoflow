@@ -361,7 +361,7 @@ class KMeansOp(HasStrictTraits):
             for c in range(self.num_clusters):
                 if len(self.by) == 0:
                     g = [c + 1]
-                elif hasattr(group, '__iter__'):
+                elif hasattr(group, '__iter__') and not isinstance(group, (str, bytes)):
                     g = tuple(list(group) + [c + 1])
                 else:
                     g = tuple([group] + [c + 1])
@@ -409,17 +409,21 @@ class KMeansOp(HasStrictTraits):
             raise util.CytoflowViewError('channels',
                                          "Must specify at least one channel for a default view")
         elif len(channels) == 1:
-            return KMeans1DView(op = self, 
-                                channel = channels[0], 
-                                scale = scale[channels[0]], 
-                                **kwargs)
+            v = KMeans1DView(op = self)
+            v.trait_set(channel = channels[0], 
+                        scale = scale[channels[0]], 
+                        **kwargs)
+            return v
+        
         elif len(channels) == 2:
-            return KMeans2DView(op = self, 
-                                xchannel = channels[0], 
-                                ychannel = channels[1],
-                                xscale = scale[channels[0]],
-                                yscale = scale[channels[1]], 
-                                **kwargs)
+            v = KMeans2DView(op = self)
+            v.trait_set(xchannel = channels[0], 
+                        ychannel = channels[1],
+                        xscale = scale[channels[0]],
+                        yscale = scale[channels[1]], 
+                        **kwargs)
+            return v
+        
         else:
             raise util.CytoflowViewError('channels',
                                          "Can't specify more than two channels for a default view")
@@ -446,6 +450,9 @@ class KMeans1DView(By1DView, AnnotatingView, HistogramView):
         Parameters
         ----------
         """
+        
+        if experiment is None:
+            raise util.CytoflowViewError('experiment', "No experiment specified")
                 
         view, trait_name = self._strip_trait(self.op.name)
         
@@ -462,16 +469,27 @@ class KMeans1DView(By1DView, AnnotatingView, HistogramView):
                                        scale = scale,
                                        **kwargs)
  
-    def _annotation_plot(self, axes, xlim, ylim, xscale, yscale, annotation, annotation_facet, annotation_value, annotation_color):
+    def _annotation_plot(self, axes, annotation, annotation_facet, 
+                         annotation_value, annotation_color, **kwargs):
                                                         
         # plot the cluster centers
             
         km = annotation
         
-        cidx = self.op.channels.index(self.channel)
-        for k in range(0, self.op.num_clusters):
-            c = xscale.inverse(km.cluster_centers_[k][cidx])
-            axes.axvline(c, linewidth=3, color='blue')                      
+        kwargs.setdefault('orientation', 'vertical')
+        
+        if kwargs['orientation'] == 'horizontal':
+            scale = kwargs['yscale']
+            cidx = self.op.channels.index(self.channel)
+            for k in range(0, self.op.num_clusters):
+                c = scale.inverse(km.cluster_centers_[k][cidx])
+                axes.axhline(c, linewidth=3, color='blue')         
+        else:
+            scale = kwargs['xscale']
+            cidx = self.op.channels.index(self.channel)
+            for k in range(0, self.op.num_clusters):
+                c = scale.inverse(km.cluster_centers_[k][cidx])
+                axes.axvline(c, linewidth=3, color='blue')                      
 
      
 @provides(IView)
@@ -499,6 +517,9 @@ class KMeans2DView(By2DView, AnnotatingView, ScatterplotView):
         Parameters
         ----------
         """
+
+        if experiment is None:
+            raise util.CytoflowViewError('experiment', "No experiment specified")
                 
         view, trait_name = self._strip_trait(self.op.name)
         
@@ -520,11 +541,14 @@ class KMeans2DView(By2DView, AnnotatingView, ScatterplotView):
                                        yscale = yscale,
                                        **kwargs)
  
-    def _annotation_plot(self, axes, xlim, ylim, xscale, yscale, annotation, annotation_facet, annotation_value, annotation_color):
+    def _annotation_plot(self, axes, annotation, annotation_facet, 
+                         annotation_value, annotation_color, **kwargs):
                                                         
         # plot the cluster centers
             
         km = annotation
+        xscale = kwargs['xscale']
+        yscale = kwargs['yscale']
         
         ix = self.op.channels.index(self.xchannel)
         iy = self.op.channels.index(self.ychannel)

@@ -135,7 +135,7 @@ class DensityGateOp(HasStrictTraits):
         ...                              xscale = 'log',
         ...                              ychannel = 'SSC-A',
         ...                              yscale = 'log',
-        ...                              keep = 0.7)
+        ...                              keep = 0.5)
         
     Find the bins to keep
     
@@ -302,9 +302,7 @@ class DensityGateOp(HasStrictTraits):
             self._keep_xbins[group] = i[0][0:num_bins]
             self._keep_ybins[group] = i[1][0:num_bins]
             self._histogram[group] = h
-#             
-#             self._keep_xbins[group] = i[0][0:num_bins]
-#             self._keep_ybins[group] = i[1][0:num_bins]
+
             
     def apply(self, experiment):
         """
@@ -422,7 +420,9 @@ class DensityGateOp(HasStrictTraits):
             a diagnostic view, call :meth:`~DensityGateView.plot` to see the 
             diagnostic plot.
         """
-        return DensityGateView(op = self, **kwargs)
+        v = DensityGateView(op = self)
+        v.trait_set(**kwargs)
+        return v
           
 @provides(IView)
 class DensityGateView(By2DView, AnnotatingView, DensityView):
@@ -461,7 +461,13 @@ class DensityGateView(By2DView, AnnotatingView, DensityView):
                      yscale = self.op._yscale,
                      **kwargs)
      
-    def _annotation_plot(self, axes, xlim, ylim, xscale, yscale, annotation, annotation_facet, annotation_value, annotation_color):
+    def _annotation_plot(self, 
+                         axes, 
+                         annotation, 
+                         annotation_facet, 
+                         annotation_value, 
+                         annotation_color, 
+                         **kwargs):
         # plot a countour around the bins that got kept
   
         keep_x = annotation[0]

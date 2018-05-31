@@ -87,7 +87,7 @@ intersection to be.  Creates a new metadata **Name**, with values ``name_1``,
     qv.plot(ex)
 '''
 
-from traits.api import provides, Callable, Instance, Str, DelegatesTo, on_trait_change
+from traits.api import provides, Callable, Instance, Str, DelegatesTo, CFloat
 from traitsui.api import View, Item, EnumEditor, Controller, VGroup, TextEditor
 from envisage.api import Plugin, contributes_to
 from pyface.api import ImageResource
@@ -98,6 +98,7 @@ from cytoflow.operations.quad import QuadOp, QuadSelection
 from cytoflowgui.op_plugins.i_op_plugin \
     import IOperationPlugin, OpHandlerMixin, PluginOpMixin, OP_PLUGIN_EXT, shared_op_traits, PluginHelpMixin
 from cytoflowgui.view_plugins.i_view_plugin import ViewHandlerMixin, PluginViewMixin
+from cytoflowgui.view_plugins.scatterplot import ScatterplotPlotParams
 from cytoflowgui.subset import SubsetListEditor
 from cytoflowgui.color_text_editor import ColorTextEditor
 from cytoflowgui.ext_enum_editor import ExtendableEnumEditor
@@ -169,6 +170,7 @@ class QuadSelectionView(PluginViewMixin, QuadSelection):
     op = Instance(IOperation, fixed = True)
     xthreshold = DelegatesTo('op', status = True)
     ythreshold = DelegatesTo('op', status = True)
+    plot_params = Instance(ScatterplotPlotParams, ()) 
 
     name = Str
     
@@ -179,20 +181,25 @@ class QuadSelectionView(PluginViewMixin, QuadSelection):
             return False
         
     def plot_wi(self, wi):        
-        self.plot(wi.previous_wi.result)
+        self.plot(wi.previous_wi.result, **self.plot_params.trait_get())
         
     def get_notebook_code(self, idx):
         view = QuadSelection()
         view.copy_traits(self, view.copyable_trait_names())
+        plot_params_str = traits_str(self.plot_params)
+
         return dedent("""
-        op_{idx}.default_view({traits}).plot(ex_{prev_idx})
+        op_{idx}.default_view({traits}).plot(ex_{prev_idx}{plot_params})
         """
         .format(idx = idx, 
                 traits = traits_str(view),
-                prev_idx = idx - 1))
+                prev_idx = idx - 1,
+                plot_params = ", " + plot_params_str if plot_params_str else ""))
     
 class QuadPluginOp(QuadOp, PluginOpMixin):
     handler_factory = Callable(QuadHandler, transient = True)
+    xthreshold = CFloat
+    ythreshold = CFloat
 
     def default_view(self, **kwargs):
         return QuadSelectionView(op = self, **kwargs)
@@ -242,14 +249,15 @@ def _dump(op):
 def _load(data, version):
     return QuadPluginOp(**data)
 
-@camel_registry.dumper(QuadSelectionView, 'quad-view', version = 1)
+@camel_registry.dumper(QuadSelectionView, 'quad-view', version = 2)
 def _dump_view(view):
     return dict(op = view.op,
                 xscale = view.xscale,
                 yscale = view.yscale,
                 huefacet = view.huefacet,
-                subset_list = view.subset_list)
+                subset_list = view.subset_list,
+                plot_params = view.plot_params)
     
-@camel_registry.loader('quad-view', version = 1)
+@camel_registry.loader('quad-view', version = any)
 def _load_view(data, version):
     return QuadSelectionView(**data)

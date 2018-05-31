@@ -21,10 +21,9 @@ cytoflow.operations.quad
 ------------------------
 '''
 
-from traits.api import (HasStrictTraits, CFloat, Str, CStr, Bool, Instance,
+from traits.api import (HasStrictTraits, Float, Str, Bool, Instance,
                         provides, on_trait_change, Any, Constant)
 
-from matplotlib.widgets import Cursor
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 
@@ -97,8 +96,24 @@ class QuadOp(HasStrictTraits):
     .. plot::
         :context: close-figs
     
-        >>> qv = quad.default_view(xscale = 'log', yscale = 'log')
+        >>> qv = quad.default_view(huefacet = "Dox",
+        ...                        xscale = 'log', 
+        ...                        yscale = 'log')
+        ...
+                                   
         >>> qv.plot(ex)
+        
+    .. note::
+       If you want to use the interactive default view in a Jupyter notebook,
+       make sure you say ``%matplotlib notebook`` in the first cell 
+       (instead of ``%matplotlib inline`` or similar).  Then call 
+       ``default_view()`` with ``interactive = True``::
+       
+           qv = quad.default_view(huefacet = "Dox",
+                                  xscale = 'log',
+                                  yscale = 'log',
+                                  interactive = True)
+           qv.plot(ex)
 
     Apply the gate and show the result
     
@@ -119,13 +134,15 @@ class QuadOp(HasStrictTraits):
     id = Constant('edu.mit.synbio.cytoflow.operations.quad')
     friendly_id = Constant("Quadrant Gate")
     
-    name = CStr()
+    name = Str
     
-    xchannel = Str()
-    xthreshold = CFloat()
+    xchannel = Str
+    xthreshold = Float
     
-    ychannel = Str()
-    ythreshold = CFloat()
+    ychannel = Str
+    ythreshold = Float
+    
+    _selection_view = Instance('QuadSelection', transient = True)
 
     def apply(self, experiment):
         """Applies the quad gate to an experiment.
@@ -217,7 +234,9 @@ class QuadOp(HasStrictTraits):
         return new_experiment
     
     def default_view(self, **kwargs):
-        return QuadSelection(op = self, **kwargs)
+        self._selection_view = QuadSelection(op = self)
+        self._selection_view.trait_set(**kwargs)
+        return self._selection_view
     
 @provides(ISelectionView)
 class QuadSelection(Op2DView, ScatterplotView):
@@ -263,7 +282,7 @@ class QuadSelection(Op2DView, ScatterplotView):
     _ax = Any(transient = True)
     _hline = Instance(Line2D, transient = True)
     _vline = Instance(Line2D, transient = True)
-    _cursor = Instance(Cursor, transient = True)
+    _cursor = Instance(util.Cursor, transient = True)
         
     def plot(self, experiment, **kwargs):
         """
@@ -307,11 +326,11 @@ class QuadSelection(Op2DView, ScatterplotView):
     @on_trait_change('interactive', post_init = True)
     def _interactive(self):
         if self._ax and self.interactive:
-            self._cursor = Cursor(self._ax,
-                                  horizOn = True,
-                                  vertOn = True,
-                                  color = 'blue',
-                                  useblit = True) 
+            self._cursor = util.Cursor(self._ax,
+                                       horizOn = True,
+                                       vertOn = True,
+                                       color = 'blue',
+                                       useblit = True) 
             self._cursor.connect_event('button_press_event', self._onclick)
         elif self._cursor:
             self._cursor.disconnect_events()

@@ -34,7 +34,7 @@ a = Analysis(['../cytoflowgui/run.py'],
                        'pyface.wx', 'traitsui.wx', 'OpenGL',
                        'OpenGL.GLUT', 'OpenGL.platform',
                        'IPython', 'PyQt4.QtAssistant',
-                       'PyQt4.QtSql', 'PyQt4.QtXml', 'PyQt4.QtTest', 
+                       'PyQt4.QtSql', 'PyQt4.QtTest', 
                        'PyQt4.QtOpenGL', 'wx',
                        'gtk', 'gi', 'sphinx', 'twisted', 'zope',
                        'jinja2', 'httplib2', '_mysql',
@@ -47,7 +47,7 @@ a = Analysis(['../cytoflowgui/run.py'],
 # versions
 
 remove_strs = ["glib", "gobject", "gthread", "libX", "libICE", "libdrm", 
-               "fontconfig"]
+               "fontconfig", "__pycache__"]
 
 lol = [ [x for x in a.binaries if x[0].find(y) >= 0] for y in remove_strs]
 remove_items = [item for sublist in lol for item in sublist]

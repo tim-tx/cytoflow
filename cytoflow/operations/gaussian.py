@@ -22,13 +22,13 @@ cytoflow.operations.gaussian
 '''
 
 import re
+from warnings import warn
 
 import matplotlib.pyplot as plt
 
 from traits.api import (HasStrictTraits, Str, CStr, Dict, Any, Instance, Bool, 
                         Constant, List, provides)
 
-import numpy as np
 import sklearn.mixture
 import scipy.stats
 import scipy.linalg
@@ -194,7 +194,7 @@ class GaussianMixtureOp(HasStrictTraits):
     name = CStr()
     channels = List(Str)
     scale = Dict(Str, util.ScaleEnum)
-    num_components = util.PositiveInt(allow_zero = False)
+    num_components = util.PositiveInt(1, allow_zero = False)
     sigma = util.PositiveFloat(allow_zero = True)
     by = List(Str)
     
@@ -407,15 +407,17 @@ class GaussianMixtureOp(HasStrictTraits):
                                            "Aggregation metadata {} not found, "
                                            "must be one of {}"
                                            .format(b, experiment.conditions))
-                            
-        if self.num_components == 1 and self.sigma == 0.0:
-            raise util.CytoflowOpError('sigma',
-                                       "if num_components is 1, sigma must be > 0.0")
+#                             
+#         if self.num_components == 1 and self.sigma == 0.0:
+#             raise util.CytoflowOpError('sigma',
+#                                        "if num_components is 1, sigma must be > 0.0")
         
                 
         if self.num_components == 1 and self.posteriors:
-            raise util.CytoflowOpError('posteriors',
-                                       "If num_components == 1, all posteriors will be 1.")
+            warn("If num_components == 1, all posteriors will be 1",
+                 util.CytoflowOpWarning)
+#             raise util.CytoflowOpError('posteriors',
+#                                        "If num_components == 1, all posteriors will be 1.")
          
         if self.num_components > 1:
             event_assignments = pd.Series(["{}_None".format(self.name)] * len(experiment), dtype = "object")
@@ -440,16 +442,27 @@ class GaussianMixtureOp(HasStrictTraits):
          
         prop_idx = pd.MultiIndex.from_product([experiment[x].unique() for x in self.by] + [components], 
                                          names = list(self.by) + ["Component"])
-        prop_stat = pd.Series(index = prop_idx, dtype = np.dtype(object)).sort_index()
+        prop_stat = pd.Series(name = "{} : {}".format(self.name, "proportion"),
+                              index = prop_idx, 
+                              dtype = np.dtype(object)).sort_index()
                   
         mean_idx = pd.MultiIndex.from_product([experiment[x].unique() for x in self.by] + [components] + [self.channels], 
                                               names = list(self.by) + ["Component"] + ["Channel"])
-        mean_stat = pd.Series(index = mean_idx, dtype = np.dtype(object)).sort_index()
-        sigma_stat = pd.Series(index = mean_idx, dtype = np.dtype(object)).sort_index()
+        mean_stat = pd.Series(name = "{} : {}".format(self.name, "mean"),
+                              index = mean_idx, 
+                              dtype = np.dtype(object)).sort_index()
+        sigma_stat = pd.Series(name = "{} : {}".format(self.name, "sigma"),
+                               index = mean_idx,
+                               dtype = np.dtype(object)).sort_index()
+        interval_stat = pd.Series(name = "{} : {}".format(self.name, "interval"),
+                                  index = mean_idx, 
+                                  dtype = np.dtype(object)).sort_index()
 
         corr_idx = pd.MultiIndex.from_product([experiment[x].unique() for x in self.by] + [components] + [self.channels] + [self.channels], 
                                               names = list(self.by) + ["Component"] + ["Channel_1"] + ["Channel_2"])
-        corr_stat = pd.Series(index = corr_idx, dtype = np.dtype(object)).sort_index()  
+        corr_stat = pd.Series(name = "{} : {}".format(self.name, "correlation"),
+                              index = corr_idx, 
+                              dtype = np.dtype(object)).sort_index()  
                  
         for group, data_subset in groupby:
             if group not in self._gmms:
@@ -507,14 +520,17 @@ class GaussianMixtureOp(HasStrictTraits):
                     event_gate[c].iloc[group_idx] = np.less_equal(dist, thresh)
                     
             if self.posteriors:
-                p = gmm.predict(x)
+#                 import sys;sys.path.append(r'/home/brian/.p2/pool/plugins/org.python.pydev_6.2.0.201711281614/pysrc')
+#                 import pydevd;pydevd.settrace()
+                
+                p = gmm.predict_proba(x)
                 for c in range(self.num_components):
-                    event_posteriors[c].iloc[group_idx] = p[c]
+                    event_posteriors[c].iloc[group_idx] = p[:, c]
                     
             for c in range(self.num_components):
                 if len(self.by) == 0:
                     g = [c + 1]
-                elif hasattr(group, '__iter__'):
+                elif hasattr(group, '__iter__') and not isinstance(group, (str, bytes)):
                     g = tuple(list(group) + [c + 1])
                 else:
                     g = tuple([group] + [c + 1])
@@ -526,8 +542,9 @@ class GaussianMixtureOp(HasStrictTraits):
                     mean_stat.loc[g2] = self._scale[channel1].inverse(gmm.means_[c, cidx1])
                     
                     s, corr = util.cov2corr(gmm.covariances_[c])
-                    sigma_stat.loc[g2] = (self._scale[channel1].inverse(gmm.means_[c, cidx1] - s[cidx1]),
-                                          self._scale[channel1].inverse(gmm.means_[c, cidx1] + s[cidx1]))
+                    sigma_stat[g2] = (self._scale[channel1].inverse(s[cidx1]))
+                    interval_stat.loc[g2] = (self._scale[channel1].inverse(gmm.means_[c, cidx1] - s[cidx1]),
+                                             self._scale[channel1].inverse(gmm.means_[c, cidx1] + s[cidx1]))
             
                     for cidx2, channel2 in enumerate(self.channels):
                         g3 = tuple(list(g2) + [channel2])
@@ -552,6 +569,7 @@ class GaussianMixtureOp(HasStrictTraits):
                 
         new_experiment.statistics[(self.name, "mean")] = pd.to_numeric(mean_stat)
         new_experiment.statistics[(self.name, "sigma")] = sigma_stat
+        new_experiment.statistics[(self.name, "interval")] = interval_stat
         if len(corr_stat) > 0:
             new_experiment.statistics[(self.name, "correlation")] = pd.to_numeric(corr_stat)
         if self.num_components > 1:
@@ -593,17 +611,21 @@ class GaussianMixtureOp(HasStrictTraits):
             raise util.CytoflowViewError('channels',
                                          "Must specify at least one channel for a default view")
         elif len(channels) == 1:
-            return GaussianMixture1DView(op = self, 
-                                         channel = channels[0], 
-                                         scale = scale[channels[0]], 
-                                         **kwargs)
+            v = GaussianMixture1DView(op = self)
+            v.trait_set(channel = channels[0], 
+                        scale = scale[channels[0]], 
+                        **kwargs)
+            return v
+        
         elif len(channels) == 2:
-            return GaussianMixture2DView(op = self, 
-                                         xchannel = channels[0], 
-                                         ychannel = channels[1],
-                                         xscale = scale[channels[0]],
-                                         yscale = scale[channels[1]], 
-                                         **kwargs)
+            v = GaussianMixture2DView(op = self)
+            v.trait_set(xchannel = channels[0], 
+                        ychannel = channels[1],
+                        xscale = scale[channels[0]],
+                        yscale = scale[channels[1]], 
+                        **kwargs)
+            return v
+        
         else:
             raise util.CytoflowViewError('channels',
                                          "Can't specify more than two channels for a default view")
@@ -632,6 +654,9 @@ class GaussianMixture1DView(By1DView, AnnotatingView, HistogramView):
         Parameters
         ----------
         """
+
+        if experiment is None:
+            raise util.CytoflowViewError('experiment', "No experiment specified")
         
         if self.op.num_components == 1:
             annotation_facet = self.op.name + "_1"
@@ -653,14 +678,16 @@ class GaussianMixture1DView(By1DView, AnnotatingView, HistogramView):
                                                 **kwargs)
         
         
-    def _annotation_plot(self, axes, xlim, ylim, xscale, yscale, annotation, annotation_facet, annotation_value, annotation_color):
+    def _annotation_plot(self, axes, annotation, annotation_facet, 
+                         annotation_value, annotation_color, **kwargs):
 
         # annotation is an instance of mixture.GaussianMixture
         gmm = annotation
         
         if annotation_value is None:
             for i in range(len(gmm.means_)):
-                self._annotation_plot(axes, xlim, ylim, xscale, yscale, annotation, annotation_facet, i, annotation_color)
+                self._annotation_plot(axes, annotation, annotation_facet, 
+                                      i, annotation_color, **kwargs)
             return
         elif type(annotation_value) is str:
             try:
@@ -677,20 +704,42 @@ class GaussianMixture1DView(By1DView, AnnotatingView, HistogramView):
         else:
             idx = annotation_value
               
-        patch_area = 0.0
-                                 
-        for k in range(0, len(axes.patches)):
-            patch = axes.patches[k]
-            xy = patch.get_xy()
-            patch_area += poly_area([xscale(p[0]) for p in xy], [p[1] for p in xy])
-        
-        plt_min, plt_max = plt.gca().get_xlim()
-        x = xscale.inverse(np.linspace(xscale(plt_min), xscale(plt_max), 500))   
-        pdf_scale = patch_area * gmm.weights_[idx]
-        mean = gmm.means_[idx][0]
-        stdev = np.sqrt(gmm.covariances_[idx][0])
-        y = scipy.stats.norm.pdf(xscale(x), mean, stdev) * pdf_scale
-        axes.plot(x, y, color = annotation_color)
+        kwargs.setdefault('orientation', 'vertical')
+            
+        if kwargs['orientation'] == 'horizontal':
+            scale = kwargs['yscale']
+            patch_area = 0.0
+                                     
+            for k in range(0, len(axes.patches)):
+                patch = axes.patches[k]
+                xy = patch.get_xy()
+                patch_area += poly_area([scale(p[1]) for p in xy], [p[0] for p in xy])
+            
+            plt_min, plt_max = plt.gca().get_ylim()
+            y = scale.inverse(np.linspace(scale(scale.clip(plt_min)), 
+                                          scale(scale.clip(plt_max)), 500))   
+            pdf_scale = patch_area * gmm.weights_[idx]
+            mean = gmm.means_[idx][0]
+            stdev = np.sqrt(gmm.covariances_[idx][0])
+            x = scipy.stats.norm.pdf(scale(y), mean, stdev) * pdf_scale
+            axes.plot(x, y, color = annotation_color)
+        else:
+            scale = kwargs['xscale']
+            patch_area = 0.0
+                                     
+            for k in range(0, len(axes.patches)):
+                patch = axes.patches[k]
+                xy = patch.get_xy()
+                patch_area += poly_area([scale(p[0]) for p in xy], [p[1] for p in xy])
+            
+            plt_min, plt_max = plt.gca().get_xlim()
+            x = scale.inverse(np.linspace(scale(scale.clip(plt_min)), 
+                                          scale(scale.clip(plt_max)), 500))   
+            pdf_scale = patch_area * gmm.weights_[idx]
+            mean = gmm.means_[idx][0]
+            stdev = np.sqrt(gmm.covariances_[idx][0])
+            y = scipy.stats.norm.pdf(scale(x), mean, stdev) * pdf_scale
+            axes.plot(x, y, color = annotation_color)
                 
 # from http://stackoverflow.com/questions/24467972/calculate-area-of-polygon-given-x-y-coordinates
 def poly_area(x,y):
@@ -728,6 +777,9 @@ class GaussianMixture2DView(By2DView, AnnotatingView, ScatterplotView):
         Parameters
         ----------
         """
+
+        if experiment is None:
+            raise util.CytoflowViewError('experiment', "No experiment specified")
         
         if self.op.num_components == 1:
             annotation_facet = self.op.name + "_1"
@@ -754,14 +806,16 @@ class GaussianMixture2DView(By2DView, AnnotatingView, ScatterplotView):
                                                 yscale = yscale,
                                                 **kwargs)
 
-    def _annotation_plot(self, axes, xlim, ylim, xscale, yscale, annotation, annotation_facet, annotation_value, annotation_color):
+    def _annotation_plot(self, axes, annotation, annotation_facet, 
+                         annotation_value, annotation_color, **kwargs):
 
         # annotation is an instance of mixture.GaussianMixture
         gmm = annotation
         
         if annotation_value is None:
             for i in range(len(gmm.means_)):
-                self._annotation_plot(axes, xlim, ylim, xscale, yscale, annotation, annotation_facet, i, annotation_color)
+                self._annotation_plot(axes, annotation, annotation_facet, i, 
+                                      annotation_color, **kwargs)
             return
         elif isinstance(annotation_value, str):
             try:
@@ -777,6 +831,9 @@ class GaussianMixture2DView(By2DView, AnnotatingView, ScatterplotView):
                 return
         else:
             idx = annotation_value
+            
+        xscale = kwargs['xscale']
+        yscale = kwargs['yscale']
         
         mean = gmm.means_[idx]
         covar = gmm.covariances_[idx]

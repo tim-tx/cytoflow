@@ -53,20 +53,9 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg
 from pyface.qt import QtCore, QtGui
 
 # needed for pylab_setup
-backend_version = "0.0.2"
+backend_version = "0.0.3"
 
 from matplotlib.backend_bases import FigureManagerBase
-
-# module-level pipe connections for communicating between canvases.
-# these are initialized in cytoflow_application, which starts the remote
-# process.
-
-# http://stackoverflow.com/questions/1977362/how-to-create-module-wide-variables-in-python
-#this = sys.modules[__name__]
-#this.parent_conn = None
-#self.child_conn = None
-#this.remote_canvas = None
-#this.process_events = threading.Event()
 
 DEBUG = 0
 
@@ -80,6 +69,7 @@ class Msg(object):
     MOUSE_RELEASE_EVENT = "MOUSE_RELEASE"
     MOUSE_DOUBLE_CLICK_EVENT = "MOUSE_DOUBLE_CLICK"
     
+    DPI = "DPI"
     PRINT = "PRINT"
     
 def log_exception():
@@ -141,6 +131,10 @@ class FigureCanvasQTAggLocal(FigureCanvasQTAgg):
         t.daemon = True
         t.start()
         
+        dpi = self.physicalDpiX()
+        matplotlib.rcParams['figure.dpi'] = dpi
+        self.child_conn.send((Msg.DPI, self.physicalDpiX()))
+        
     def listen_for_remote(self):
         while self.child_conn.poll(None):
             try:
@@ -200,7 +194,7 @@ class FigureCanvasQTAggLocal(FigureCanvasQTAgg):
                       .format(event.button()))
         x = event.pos().x()
         # flip y so y=0 is bottom of canvas
-        y = self.figure.bbox.height - event.pos().y()
+        y = self.height() - event.pos().y()
         button = self.buttond.get(event.button())
         if button is not None:
             msg = (Msg.MOUSE_PRESS_EVENT, (x, y, button))
@@ -212,7 +206,7 @@ class FigureCanvasQTAggLocal(FigureCanvasQTAgg):
                       .format(event.button()))
         x = event.pos().x()
         # flipy so y=0 is bottom of canvas
-        y = self.figure.bbox.height - event.pos().y()
+        y = self.height() - event.pos().y()
         button = self.buttond.get(event.button())
         if button is not None:
             msg = (Msg.MOUSE_DOUBLE_CLICK_EVENT, (x, y, button))
@@ -224,7 +218,7 @@ class FigureCanvasQTAggLocal(FigureCanvasQTAgg):
 #             print('FigureCanvasQTAggLocal.mouseMoveEvent: {}', (event.x(), event.y()))
         self.move_x = event.x()
         # flip y so y=0 is bottom of canvas
-        self.move_y = int(self.figure.bbox.height) - event.y()
+        self.move_y = self.height() - event.y()
         self.send_event.set()
 
 
@@ -234,7 +228,7 @@ class FigureCanvasQTAggLocal(FigureCanvasQTAgg):
         
         x = event.x()
         # flip y so y=0 is bottom of canvas
-        y = self.figure.bbox.height - event.y()
+        y = self.height() - event.y()
         button = self.buttond.get(event.button())
         if button is not None:
             msg = (Msg.MOUSE_RELEASE_EVENT, (x, y, button))
@@ -248,7 +242,7 @@ class FigureCanvasQTAggLocal(FigureCanvasQTAgg):
         logging.debug("FigureCanvasQTAggLocal.resizeEvent : {}" 
                       .format((w, h)))            
         
-        dpival = self.figure.dpi
+        dpival = self.physicalDpiX()
         winch = w / dpival
         hinch = h / dpival
         
@@ -332,8 +326,10 @@ class FigureCanvasAggRemote(FigureCanvasAgg):
     The canvas the figure renders into in the remote process (ie, the one
     where someone is calling pyplot.plot()
    """
-
+   
     def __init__(self, parent_conn, process_events, plot_lock, figure):
+#         traceback.print_stack()
+        
         FigureCanvasAgg.__init__(self, figure)
         
         self.parent_conn = parent_conn
@@ -378,7 +374,11 @@ class FigureCanvasAggRemote(FigureCanvasAgg):
                               .format(msg, payload))
                 
             try:              
-                if msg == Msg.RESIZE_EVENT:
+                if msg == Msg.DPI:
+                    dpi = payload
+                    matplotlib.rcParams['figure.dpi'] = dpi
+                    matplotlib.pyplot.clf()
+                elif msg == Msg.RESIZE_EVENT:
                     with self.plot_lock:
                         (winch, hinch) = payload
                         self.figure.set_size_inches(winch, hinch)
@@ -408,7 +408,15 @@ class FigureCanvasAggRemote(FigureCanvasAgg):
                     (args, kwargs) = payload
                     if self.process_events.is_set():
                         with self.plot_lock:
+                            old_size = self.figure.get_size_inches()
+                            
+                            width = kwargs.pop('width')
+                            height = kwargs.pop('height')
+                            self.figure.set_size_inches(width, height)
+
                             FigureCanvasAgg.print_figure(self, *args, **kwargs)
+                            
+                            self.figure.set_size_inches(old_size[0], old_size[1])
                 else:
                     raise RuntimeError("FigureCanvasAggRemote received bad message {}".format(msg))
             except Exception:
@@ -483,6 +491,7 @@ class FigureCanvasAggRemote(FigureCanvasAgg):
         self.update_remote.set()
         
 remote_canvas = None
+singleton_lock = threading.Lock()
 
 def new_figure_manager(num, *args, **kwargs):
     """
@@ -490,7 +499,8 @@ def new_figure_manager(num, *args, **kwargs):
     """
     
     global remote_canvas
-    
+    global singleton_lock
+        
     logging.debug("mpl_multiprocess_backend.new_figure_manager()")
     
     # get the pipe connection
@@ -506,14 +516,17 @@ def new_figure_manager(num, *args, **kwargs):
     FigureClass = kwargs.pop('FigureClass', Figure)
     new_fig = FigureClass(*args, **kwargs)
  
-    # the canvas is a singleton.
-    if not remote_canvas:
-        remote_canvas = FigureCanvasAggRemote(parent_conn, process_events, plot_lock, new_fig)
-    else:         
-        old_fig = remote_canvas.figure
-        new_fig.set_size_inches(old_fig.get_figwidth(), 
-                                old_fig.get_figheight())
-        remote_canvas.figure = new_fig
+    with singleton_lock:
+     
+        # the canvas is a singleton.
+        if not remote_canvas:
+            remote_canvas = FigureCanvasAggRemote(parent_conn, process_events, plot_lock, new_fig)
+            
+        else:         
+            old_fig = remote_canvas.figure
+            new_fig.set_size_inches(old_fig.get_figwidth(), 
+                                    old_fig.get_figheight())
+            remote_canvas.figure = new_fig
         
     new_fig.set_canvas(remote_canvas)
 

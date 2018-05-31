@@ -87,10 +87,10 @@ the peak finding work by tweaking , please submit a bug report!
 '''
 
 from traitsui.api import (View, Item, EnumEditor, Controller, VGroup, 
-                          ButtonEditor, HGroup, InstanceEditor)
+                          ButtonEditor, HGroup, InstanceEditor, TextEditor)
 from envisage.api import Plugin, contributes_to
 from traits.api import (provides, Callable, List, Str, HasTraits, File, Event, 
-                        on_trait_change, Property, Dict, Int, Float, Undefined)
+                        on_trait_change, Property, Dict, CInt, CFloat, Float)
 from pyface.api import ImageResource
 
 import cytoflow.utility as util
@@ -106,7 +106,7 @@ from cytoflowgui.vertical_list_editor import VerticalListEditor
 from cytoflowgui.workflow import Changed
 from cytoflowgui.serialization import camel_registry, traits_repr, traits_str, dedent
 
-BeadCalibrationOp.__repr__ = traits_repr
+BeadCalibrationOp.__repr__ = traits_repr    
 
 class _Unit(HasTraits):
     channel = Str
@@ -171,10 +171,14 @@ class BeadCalibrationHandler(OpHandlerMixin, Controller):
                     label = "Controls",
                     show_labels = False),
                     Item('bead_peak_quantile',
+                         editor = TextEditor(auto_set = False),
                          label = "Peak\nQuantile"),
                     Item('bead_brightness_threshold',
+                         editor = TextEditor(auto_set = False),
                          label = "Peak\nThreshold "),
                     Item('bead_brightness_cutoff',
+                         editor = TextEditor(auto_set = False,
+                                             format_func = lambda x: "" if x == None else str(x)),
                          label = "Peak\nCutoff"),
                     Item('do_estimate',
                          editor = ButtonEditor(value = True,
@@ -192,9 +196,9 @@ class BeadCalibrationPluginOp(PluginOpMixin, BeadCalibrationOp):
     units_list = List(_Unit, estimate = True)
     units = Dict(Str, Str, transient = True)
 
-    bead_peak_quantile = Int(80, estimate = True)
-    bead_brightness_threshold = Float(100.0, estimate = True)
-    bead_brightness_cutoff = Float(Undefined, estimate = True)
+    bead_peak_quantile = CInt(80, estimate = True)
+    bead_brightness_threshold = CFloat(100.0, estimate = True)
+    bead_brightness_cutoff = util.CFloatOrNone(None, estimate = True)
 
     @on_trait_change('units_list_items,units_list.+', post_init = True)
     def _controls_changed(self, obj, name, old, new):
@@ -250,6 +254,7 @@ class BeadCalibrationPluginOp(PluginOpMixin, BeadCalibrationOp):
         self._calibration_functions.clear()
         self._peaks.clear()
         self._mefs.clear()
+        self._histograms.clear()
         self.changed = (Changed.ESTIMATE_RESULT, self)
         
     def get_notebook_code(self, idx):

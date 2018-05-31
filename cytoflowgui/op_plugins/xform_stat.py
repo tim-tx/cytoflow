@@ -116,7 +116,7 @@ class TransformStatisticHandler(OpHandlerMixin, Controller):
             data = data.query(self.model.subset)
             
         if len(data) == 0:
-            return []       
+            return []
         
         names = list(data.index.names)
         for name in names:

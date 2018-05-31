@@ -14,7 +14,7 @@ from cytoflowgui.tests.test_base import ImportedDataTest, wait_for
 from cytoflowgui.op_plugins import PCAPlugin
 from cytoflowgui.op_plugins.pca import _Channel
 from cytoflowgui.subset import CategorySubset
-from cytoflowgui.serialization import load_yaml, save_yaml
+from cytoflowgui.serialization import load_yaml, save_yaml, traits_eq, traits_hash
 
 class TestPCA(ImportedDataTest):
     
@@ -108,15 +108,9 @@ class TestPCA(ImportedDataTest):
         self.assertTrue(wait_for(self.wi, 'status', lambda v: v == 'valid', 30))
    
     def testSerializeOp(self):
-    
-        def channel_eq(self, other):
-            return self.channel == other.channel and self.scale == other.scale
-        
-        def channel_hash(self):
-            return hash((self.channel, self.scale))
-        
-        _Channel.__eq__ = channel_eq
-        _Channel.__hash__ = channel_hash
+
+        _Channel.__eq__ = traits_eq
+        _Channel.__hash__ = traits_hash
          
         fh, filename = tempfile.mkstemp()
         try:

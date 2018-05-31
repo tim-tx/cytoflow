@@ -76,9 +76,9 @@ dimensions.  Good for looking for clusters.
 '''
 
 from traits.api import (provides, Callable, Str, List, HasTraits, Event, Dict,
-                        on_trait_change)
+                        on_trait_change, Instance, Enum)
 from traitsui.api import (View, Item, Controller, EnumEditor, HGroup, VGroup, 
-                          InstanceEditor, ButtonEditor)
+                          InstanceEditor, ButtonEditor, TextEditor)
 from envisage.api import Plugin, contributes_to
 from pyface.api import ImageResource
 
@@ -93,8 +93,11 @@ from cytoflowgui.subset import SubsetListEditor
 from cytoflowgui.ext_enum_editor import ExtendableEnumEditor
 from cytoflowgui.color_text_editor import ColorTextEditor
 from cytoflowgui.view_plugins.i_view_plugin \
-    import IViewPlugin, VIEW_PLUGIN_EXT, ViewHandlerMixin, PluginViewMixin, PluginHelpMixin
-from cytoflowgui.serialization import camel_registry, traits_repr, dedent
+    import (IViewPlugin, VIEW_PLUGIN_EXT, ViewHandlerMixin, PluginViewMixin, 
+            PluginHelpMixin, DataPlotParams)
+            
+from cytoflowgui.view_plugins.scatterplot import SCATTERPLOT_MARKERS
+from cytoflowgui.serialization import camel_registry, traits_repr, traits_str, dedent
 from cytoflowgui.vertical_list_editor import VerticalListEditor
 from cytoflowgui.util import IterWrapper
 from cytoflowgui.workflow import Changed
@@ -181,9 +184,27 @@ class RadvizHandler(ViewHandlerMixin, Controller):
                                 editor = EnumEditor(name = 'handler.context.channels')),
                            Item('scale')),
                     handler = self)
+        
+class RadvizPlotParams(DataPlotParams):
+    
+    alpha = util.PositiveCFloat(0.25)
+    s = util.PositiveCFloat(2)
+    marker = Enum(SCATTERPLOT_MARKERS)
+    
+    def default_traits_view(self):
+        base_view = DataPlotParams.default_traits_view(self)
+        
+        return View(Item('alpha',
+                         editor = TextEditor(auto_set = False)),
+                    Item('s',
+                         editor = TextEditor(auto_set = False),
+                         label = "Size"),
+                    Item('marker'),
+                    base_view.content)
 
 class RadvizPluginView(PluginViewMixin, RadvizView):
     handler_factory = Callable(RadvizHandler)
+    plot_params = Instance(RadvizPlotParams, ())
     plotfacet = Str
     
     channels_list = List(_Channel)
@@ -231,13 +252,16 @@ class RadvizPluginView(PluginViewMixin, RadvizView):
         for channel in self.channels_list:
             view.channels.append(channel.channel)
             view.scale[channel.channel] = channel.scale
+            
+        plot_params_str = traits_str(self.plot_params)
 
         return dedent("""
-        {repr}.plot(ex_{idx}{plot})
+        {repr}.plot(ex_{idx}{plot}{plot_params})
         """
         .format(repr = repr(view),
                 idx = idx,
-                plot = ", plot_name = " + repr(self.current_plot) if self.plot_names else ""))
+                plot = ", plot_name = " + repr(self.current_plot) if self.plot_names else "",
+                plot_params = ", " + plot_params_str if plot_params_str else ""))
 
 @provides(IViewPlugin)
 class RadvizPlugin(Plugin, PluginHelpMixin):
@@ -257,7 +281,7 @@ class RadvizPlugin(Plugin, PluginHelpMixin):
         return self
         
 ### Serialization
-@camel_registry.dumper(RadvizPluginView, 'radviz', version = 1)
+@camel_registry.dumper(RadvizPluginView, 'radviz', version = 2)
 def _dump(view):
     return dict(channels_list = view.channels_list,
                 xfacet = view.xfacet,
@@ -265,11 +289,42 @@ def _dump(view):
                 huefacet = view.huefacet,
                 huescale = view.huescale,
                 plotfacet = view.plotfacet,
-                subset_list = view.subset_list)
+                subset_list = view.subset_list,
+                plot_params = view.plot_params)
     
-@camel_registry.loader('radviz', version = 1)
+@camel_registry.loader('radviz', version = any)
 def _load(data, version):
     return RadvizPluginView(**data)
+
+    
+@camel_registry.dumper(RadvizPlotParams, 'radviz-params', version = 1)
+def _dump_params(params):
+    return dict(
+                # BasePlotParams
+                title = params.title,
+                xlabel = params.xlabel,
+                ylabel = params.ylabel,
+                huelabel = params.huelabel,
+                col_wrap = params.col_wrap,
+                sns_style = params.sns_style,
+                sns_context = params.sns_context,
+                legend = params.legend,
+                sharex = params.sharex,
+                sharey = params.sharey,
+                despine = params.despine,
+
+                # DataplotParams
+                min_quantile = params.min_quantile,
+                max_quantile = params.max_quantile,
+                
+                # radviz params
+                alpha = params.alpha,
+                s = params.s,
+                marker = params.marker )
+    
+@camel_registry.loader('radviz-params', version = any)
+def _load_params(data, version):
+    return RadvizPlotParams(**data)
 
 @camel_registry.dumper(_Channel, 'radviz-channel', version = 1)
 def _dump_channel(channel):

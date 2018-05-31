@@ -13,6 +13,10 @@ _Logicle.cpython-*.so
 
 .*.sw?
 
+*-checkpoint.ipynb
+*.so
+*.pyd
+
 /.settings/
 
 /build/
@@ -23,11 +27,6 @@ _Logicle.cpython-*.so
 .classpath
 .project
 .pydevproject
-
-# submodule bits
-docs/examples-basic
-docs/examples-advanced
-examples-advanced
 
 # logicle build bits
 Logicle_wrap.cpp

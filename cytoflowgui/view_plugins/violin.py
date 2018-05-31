@@ -76,8 +76,8 @@ Plots a violin plot, which is a nice way to compare several distributions.
                         variable = 'Dox').plot(ex)
 """
 
-from traits.api import provides, Callable, Str
-from traitsui.api import View, Item, VGroup, Controller, EnumEditor
+from traits.api import provides, Callable, Str, Instance, Enum, CInt, Bool
+from traitsui.api import View, Item, VGroup, Controller, EnumEditor, TextEditor
 from envisage.api import Plugin, contributes_to
 from pyface.api import ImageResource
 
@@ -92,8 +92,9 @@ from cytoflowgui.subset import SubsetListEditor
 from cytoflowgui.color_text_editor import ColorTextEditor
 from cytoflowgui.ext_enum_editor import ExtendableEnumEditor
 from cytoflowgui.view_plugins.i_view_plugin \
-    import IViewPlugin, VIEW_PLUGIN_EXT, ViewHandlerMixin, PluginViewMixin, PluginHelpMixin
-from cytoflowgui.serialization import camel_registry, traits_repr, dedent
+    import (IViewPlugin, VIEW_PLUGIN_EXT, ViewHandlerMixin, PluginViewMixin, 
+            PluginHelpMixin, Data1DPlotParams)
+from cytoflowgui.serialization import camel_registry, traits_repr, traits_str, dedent
 from cytoflowgui.util import IterWrapper
 
 ViolinPlotView.__repr__ = traits_repr
@@ -147,8 +148,32 @@ class ViolinHandler(ViewHandlerMixin, Controller):
                          editor = ColorTextEditor(foreground_color = "#000000",
                                                   background_color = "#ff9191"))))
     
+class ViolinPlotParams(Data1DPlotParams):
+
+    bw = Enum('scott', 'silverman')
+    scale_plot = Enum('area', 'count', 'width')
+    scale_hue = Bool(False)
+    gridsize = CInt(100)
+    inner = Enum("box", "quartile", None)
+    split = Bool(False)
+    
+    def default_traits_view(self):
+        base_view = Data1DPlotParams.default_traits_view(self)
+        
+        return View(Item('bw',
+                         label = 'Bandwidth'),
+                    Item('scale_plot',
+                         label = "Plot scale"),
+                    Item('scale_hue'),
+                    Item('gridsize',
+                         editor = TextEditor(auto_set = False)),
+                    Item('inner'),
+                    Item('split'),
+                    base_view.content)
+    
 class ViolinPlotPluginView(PluginViewMixin, ViolinPlotView):
     handler_factory = Callable(ViolinHandler)
+    plot_params = Instance(ViolinPlotParams, ())
     plotfacet = Str
 
     def enum_plots_wi(self, wi):
@@ -178,13 +203,16 @@ class ViolinPlotPluginView(PluginViewMixin, ViolinPlotView):
     def get_notebook_code(self, wi, idx):
         view = ViolinPlotView()
         view.copy_traits(self, view.copyable_trait_names())
+        
+        plot_params_str = traits_str(self.plot_params)
 
         return dedent("""
-        {repr}.plot(ex_{idx}{plot})
+        {repr}.plot(ex_{idx}{plot}{plot_params})
         """
         .format(repr = repr(view),
                 idx = idx,
-                plot = ", plot_name = " + repr(self.current_plot) if self.plot_names else ""))
+                plot = ", plot_name = " + repr(self.current_plot) if self.plot_names else "",
+                plot_params = ", " + plot_params_str if plot_params_str else ""))
 
 
 @provides(IViewPlugin)
@@ -206,7 +234,7 @@ class ViolinPlotPlugin(Plugin, PluginHelpMixin):
     
 ### Serialization
 
-@camel_registry.dumper(ViolinPlotPluginView, 'violin-plot', version = 1)
+@camel_registry.dumper(ViolinPlotPluginView, 'violin-plot', version = 2)
 def _dump(view):
     return dict(variable = view.variable,
                 channel = view.channel,
@@ -216,8 +244,45 @@ def _dump(view):
                 huefacet = view.huefacet,
                 huescale = view.huescale,
                 plotfacet = view.plotfacet,
-                subset_list = view.subset_list)
+                subset_list = view.subset_list,
+                plot_params = view.plot_params)
     
-@camel_registry.loader('violin-plot', version = 1)
+@camel_registry.loader('violin-plot', version = any)
 def _load(data, version):
     return ViolinPlotPluginView(**data)
+
+@camel_registry.dumper(ViolinPlotParams, 'violin-plot-params', version = 1)
+def _dump_params(params):
+    return dict(
+                # BasePlotParams
+                title = params.title,
+                xlabel = params.xlabel,
+                ylabel = params.ylabel,
+                huelabel = params.huelabel,
+                col_wrap = params.col_wrap,
+                sns_style = params.sns_style,
+                sns_context = params.sns_context,
+                legend = params.legend,
+                sharex = params.sharex,
+                sharey = params.sharey,
+                despine = params.despine,
+
+                # DataplotParams
+                min_quantile = params.min_quantile,
+                max_quantile = params.max_quantile,
+                
+                # Data1DPlotParams
+                lim = params.lim,
+                orientation = params.orientation,
+                
+                # Violin params
+                bw = params.bw,
+                scale_plot = params.scale_plot,
+                scale_hue = params.scale_hue,
+                gridsize = params.gridsize,
+                inner = params.inner,
+                split = params.split )
+    
+@camel_registry.loader('violin-plot-params', version = 1)
+def _load_params(data, version):
+    return ViolinPlotParams(**data)

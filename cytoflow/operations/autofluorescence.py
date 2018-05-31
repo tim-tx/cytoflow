@@ -21,8 +21,8 @@ cytoflow.operations.autofluorescence
 ------------------------------------
 """
 
-from traits.api import (HasStrictTraits, Str, CFloat, File, Dict,
-                        Instance, List, Constant, provides)
+from traits.api import (HasStrictTraits, Str, Float, File, Dict,
+                        Instance, List, Constant, Tuple, Array, provides)
                        
 import numpy as np
 
@@ -61,6 +61,11 @@ class AutofluorescenceOp(HasStrictTraits):
     blank_file : File
         The filename of a file with "blank" cells (not fluorescent).  Used
         to :meth:`estimate` the autofluorescence.
+        
+    blank_conditions : Dict
+        Occasionally, you'll need to specify the experimental conditions that
+        the blank tube was collected under (to apply the operations in the 
+        history.)  Specify them here.
         
     Examples
     --------
@@ -114,9 +119,12 @@ class AutofluorescenceOp(HasStrictTraits):
     channels = List(Str)
     blank_file = File(exists = True)
     blank_frame = Instance(DataFrame)
+    blank_conditions = Dict({})
 
-    _af_median = Dict(Str, CFloat, transient = True)
-    _af_stdev = Dict(Str, CFloat, transient = True)
+    _af_median = Dict(Str, Float, transient = True)
+    _af_stdev = Dict(Str, Float, transient = True)
+    _af_histogram = Dict(Str, Tuple(Array, Array), transient = True)
+
     
     def estimate(self, experiment, subset = None): 
         """
@@ -148,21 +156,35 @@ class AutofluorescenceOp(HasStrictTraits):
         # don't have to validate that blank_file exists; should crap out on 
         # trying to set a bad value
         
+        # clear the current values
+        self._af_median.clear()
+        self._af_stdev.clear()
+        self._af_histogram.clear()
+        
         # make a little Experiment
+        conditions = {k: experiment.data[k].dtype.name for k in self.blank_conditions.keys()}
         channels = {experiment.metadata[c]["fcs_name"] : c for c in experiment.channels}
         name_metadata = experiment.metadata['name_metadata']
         if ( self.blank_file != '' ):
             check_tube(self.blank_file, experiment)
-            blank_exp = ImportOp(tubes = [Tube(file = self.blank_file)], 
+            blank_exp = ImportOp(tubes = [Tube(file = self.blank_file,
+                                               conditions = self.blank_conditions)], 
+                                 conditions = conditions,
                                  channels = channels,
                                  name_metadata = name_metadata).apply()
         else:
-            blank_exp = ImportOp(tubes = [Tube(frame = self.blank_frame)], 
+            blank_exp = ImportOp(tubes = [Tube(file = self.blank_frame,
+                                               conditions = self.blank_conditions)], 
+                                 conditions = conditions,
                                  channels = channels,
                                  name_metadata = name_metadata).apply()
-        
         # apply previous operations
         for op in experiment.history:
+            try:
+                op.estimate(blank_exp)
+            except Exception:
+                pass
+            
             blank_exp = op.apply(blank_exp)
             
         # subset it
@@ -180,6 +202,8 @@ class AutofluorescenceOp(HasStrictTraits):
                                       .format(subset))
         
         for channel in self.channels:
+            self._af_histogram[channel] = np.histogram(blank_exp[channel], bins = 250)
+            
             channel_min = blank_exp[channel].quantile(0.025)
             channel_max = blank_exp[channel].quantile(0.975)
             
@@ -188,6 +212,7 @@ class AutofluorescenceOp(HasStrictTraits):
             
             self._af_median[channel] = np.median(blank_exp[channel])
             self._af_stdev[channel] = np.std(blank_exp[channel])    
+            self._af_histogram[channel] = np.histogram(blank_exp[channel], bins = 250)
                 
     def apply(self, experiment):
         """
@@ -259,8 +284,9 @@ class AutofluorescenceOp(HasStrictTraits):
             An diagnostic view, call :meth:`~AutofluorescenceDiagnosticView.plot` 
             to see the diagnostic plots
         """
-        return AutofluorescenceDiagnosticView(op = self, **kwargs)
-    
+        v = AutofluorescenceDiagnosticView(op = self)
+        v.trait_set(**kwargs)
+        return v
     
 @provides(cytoflow.views.IView)
 class AutofluorescenceDiagnosticView(HasStrictTraits):
@@ -274,9 +300,7 @@ class AutofluorescenceDiagnosticView(HasStrictTraits):
         The :class:`AutofluorescenceOp` whose parameters we're viewing. Set 
         automatically if you created the instance using 
         :meth:`AutofluorescenceOp.default_view`.
-    
-    subset : str (default = "")
-        An expression that specifies the events that are plotted in the histograms
+
     """
     
     # traits   
@@ -284,7 +308,6 @@ class AutofluorescenceDiagnosticView(HasStrictTraits):
     friendly_id = Constant("Autofluorescence Diagnostic")
 
     op = Instance(AutofluorescenceOp)    
-    subset = Str
     
     def plot(self, experiment, **kwargs):
         """
@@ -303,7 +326,8 @@ class AutofluorescenceDiagnosticView(HasStrictTraits):
                                          "you forget to run estimate()?")
             
         if not set(self.op._af_median.keys()) <= set(experiment.channels) or \
-           not set(self.op._af_stdev.keys()) <= set(experiment.channels):
+           not set(self.op._af_stdev.keys()) <= set(experiment.channels) or \
+           not set(self.op._af_histogram.keys()) <= set(experiment.channels):
             raise util.CytoflowViewError('op', 
                                        "Autofluorescence estimates aren't set, or are "
                                        "different than those in the experiment "
@@ -312,62 +336,24 @@ class AutofluorescenceDiagnosticView(HasStrictTraits):
         if not set(self.op._af_median.keys()) == set(self.op._af_stdev.keys()):
             raise util.CytoflowOpError('op',
                                        "Median and stdev keys are different! "
-                                       "What the hell happened?!")
-        
+                                       "What the heck happened?!")
+            
         if not set(self.op.channels) == set(self.op._af_median.keys()):
-            raise util.CytoflowOpError('op', 
-                                       "Estimated channels differ from the channels "
-                                       "parameter.  Did you forget to (re)run estimate()?")
+            raise util.CytoflowOpError('channels', "Estimated channels differ from the channels "
+                               "parameter.  Did you forget to (re)run estimate()?")
         
         import matplotlib.pyplot as plt
         import seaborn as sns  # @UnusedImport
         
-        kwargs.setdefault('histtype', 'stepfilled')
-        kwargs.setdefault('alpha', 0.5)
-        kwargs.setdefault('antialiased', True)
-           
-        # make a little Experiment
-        try:
-            channels = {experiment.metadata[c]["fcs_name"] : c for c in experiment.channels}
-            name_metadata = experiment.metadata['name_metadata']
-            if ( self.op.blank_file != '' ):
-                check_tube(self.op.blank_file, experiment)
-                blank_exp = ImportOp(tubes = [Tube(file = self.op.blank_file)], 
-                                     channels = channels,
-                                     name_metadata = name_metadata).apply()
-            else:
-                blank_exp = ImportOp(tubes = [Tube(frame = self.op.blank_frame)], 
-                                     channels = channels,
-                                     name_metadata = name_metadata).apply()
-        except util.CytoflowOpError as e:
-            raise util.CytoflowViewError('op', e.__str__()) from e
-        
-        # apply previous operations
-        for op in experiment.history:
-            blank_exp = op.apply(blank_exp)
-            
-        # subset it
-        if self.subset:
-            try:
-                blank_exp = blank_exp.query(self.subset)
-            except Exception as exc:
-                raise util.CytoflowOpError('subset',
-                                           "Subset string '{0}' isn't valid"
-                                           .format(self.subset)) from exc
-                            
-            if len(blank_exp.data) == 0:
-                raise util.CytoflowOpError('subset',
-                                           "Subset string '{0}' returned no events"
-                                           .format(self.subset))
-
         plt.figure()
         
         for idx, channel in enumerate(self.op.channels):
-            d = blank_exp.data[channel]
+            hist, bin_edges = self.op._af_histogram[channel]
+            hist = hist[1:-1]
+            bin_edges = bin_edges[1:-1]
             plt.subplot(len(self.op.channels), 1, idx+1)
             plt.title(channel)
-            plt.hist(d, bins = 200, **kwargs)
-            
+            plt.bar(bin_edges[:-1], hist, linewidth = 0)
             plt.axvline(self.op._af_median[channel], color = 'r')
             
         plt.tight_layout(pad = 0.8)

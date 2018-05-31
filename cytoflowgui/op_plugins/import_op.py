@@ -25,14 +25,14 @@ Import FCS files and associate them with experimental conditions (metadata.)
 
     Open the sample editor dialog box.
 
-.. object:: Random subsample
+.. object:: Events per sample
 
     For very large data sets, *Cytoflow*'s interactive operation may be too slow.
-    By clicking **Random subsample**, you can tell *Cytoflow* to import a
+    By setting **Events per sample**, you can tell *Cytoflow* to import a
     smaller number of events from each FCS file, which will make interactive
     data exploration much faster.  When you're done setting up your workflow,
-    toggle **Random subsample** off to automatically re-run the workflow with
-    the full data set.
+    set **Events per sample** to empty or 0 and *Cytoflow* will re-run your
+    workflow with the entire data set.
     
 
 ..  object:: The import dialog
@@ -95,8 +95,7 @@ Import FCS files and associate them with experimental conditions (metadata.)
 from textwrap import dedent
 
 from traitsui.api import View, Item, Controller, TextEditor
-from traits.api import Button, Property, cached_property, provides, Callable, \
-                       Bool, on_trait_change
+from traits.api import Button, Property, cached_property, provides, Callable
 from pyface.api import OK as PyfaceOK
 from envisage.api import Plugin, contributes_to
 
@@ -107,7 +106,6 @@ from cytoflow.operations.i_operation import IOperation
 from cytoflowgui.serialization import camel_registry, traits_repr
 from cytoflowgui.import_dialog import ExperimentDialog
 from cytoflowgui.op_plugins import IOperationPlugin, OpHandlerMixin, OP_PLUGIN_EXT, shared_op_traits
-from cytoflowgui.toggle_button import ToggleButtonEditor
 from cytoflowgui.op_plugins.i_op_plugin import PluginOpMixin, PluginHelpMixin
 
 ImportOp.__repr__ = Tube.__repr__ = traits_repr
@@ -116,27 +114,20 @@ class ImportHandler(OpHandlerMixin, Controller):
     
     import_event = Button(label="Edit samples...")
     samples = Property(depends_on = 'model.tubes', status = True)
-
-    coarse = Bool
-    coarse_events = util.PositiveInt(0, allow_zero = True)
     
     def default_traits_view(self):
         return View(Item('handler.import_event',
                          show_label=False),
+                    Item('object.events',
+                         editor = TextEditor(auto_set = False,
+                                             format_func = lambda x: "" if x == None else str(x)),
+                         label="Events per\nsample"),
                     Item('handler.samples',
                          label='Samples',
                          style='readonly'),
                     Item('ret_events',
                          label='Events',
                          style='readonly'),
-                    Item('handler.coarse',
-                         label="Random subsample?",
-                         show_label = False,
-                         editor = ToggleButtonEditor()),
-                    Item('object.events',
-                         editor = TextEditor(auto_set = False),
-                         label="Events per\nsample",
-                         visible_when='handler.coarse == True'),
                     shared_op_traits)
         
     def _import_event_fired(self):
@@ -147,7 +138,7 @@ class ImportHandler(OpHandlerMixin, Controller):
         d = ExperimentDialog()
 
         # self.model is an instance of ImportPluginOp
-        d.model.init_model(self.model)
+        d.model.init_model(self.model, self.context.conditions, self.context.metadata)
             
         d.size = (550, 500)
         d.open()
@@ -163,23 +154,17 @@ class ImportHandler(OpHandlerMixin, Controller):
     def _get_samples(self):
         return len(self.model.tubes)
         
-    @on_trait_change('coarse')    
-    def _on_coarse_changed(self):
-        if self.coarse:
-            self.model.events = self.coarse_events
-        else:
-            self.coarse_events = self.model.events
-            self.model.events = 0
-        
 
 @provides(IOperation)
 class ImportPluginOp(PluginOpMixin, ImportOp):
     handler_factory = Callable(ImportHandler, transient = True)
     ret_events = util.PositiveInt(0, allow_zero = True, status = True)
+    events = util.PositiveCInt(None, allow_zero = True, allow_none = True)
     
     def apply(self, experiment = None):
         ret = super().apply(experiment = experiment)
         self.ret_events = len(ret.data)
+        del ret.metadata['fcs_metadata']
 
         return ret
     
@@ -216,17 +201,17 @@ class ImportPlugin(Plugin, PluginHelpMixin):
     
 ### Serialization
     
-@camel_registry.dumper(ImportPluginOp, 'import', version = 1)
+@camel_registry.dumper(ImportPluginOp, 'import', version = 2)
 def _dump_op(op):
     return dict(tubes = op.tubes,
                 conditions = op.conditions,
                 channels = op.channels,
                 events = op.events,
-                name_metadata = op.name_metadata,
-                ret_events = op.ret_events)
+                name_metadata = op.name_metadata)
 
-@camel_registry.loader('import', version = 1)
+@camel_registry.loader('import', version = any)
 def _load_op(data, version):
+    data.pop('ret_events', None)
     return ImportPluginOp(**data)
 
 @camel_registry.dumper(Tube, 'tube', version = 1)

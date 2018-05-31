@@ -65,7 +65,7 @@ class Tube(HasTraits):
     conditions = Dict(Str, Any)
 
     def conditions_equal(self, other):        
-        return len(set(self.conditions.items()) ^ 
+        return other and len(set(self.conditions.items()) ^ 
                    set(other.conditions.items())) == 0
                    
     def __eq__(self, other):
@@ -326,12 +326,13 @@ class ImportOp(HasStrictTraits):
                 data_range = float(data_range)
                 experiment.metadata[channel]['range'] = data_range
 
+        experiment.metadata['fcs_metadata'] = {}
         for tube in self.tubes:
             if (tube.file and tube.frame != None):
                 raise util.CytoflowError("Both a DataFrame and an FCS file were specified, "
                                          "tube with file {0} and conditions {1}".format(tube.file,tube.conditions))
             elif (tube.file and tube.frame == None):
-                tube_data = parse_tube(tube.file, experiment)
+                tube_meta, tube_data = parse_tube(tube.file, experiment)
             elif (not tube.file and not tube.frame.empty):
                 tube_data = tube.frame
 
@@ -346,6 +347,8 @@ class ImportOp(HasStrictTraits):
                                   util.CytoflowWarning)
 
             experiment.add_events(tube_data[channels], tube.conditions)
+            if (tube.file and tube.frame == None):
+                experiment.metadata['fcs_metadata'][tube.file] = tube_meta
                         
         for channel in channels:
             if self.channels and channel in self.channels:
@@ -411,12 +414,12 @@ def parse_tube(filename, experiment):
     check_tube(filename, experiment)
          
     try:
-        _, tube_data = fcsparser.parse(
-                            filename, 
-                            channel_naming = experiment.metadata["name_metadata"])
+        tube_meta, tube_data = fcsparser.parse(
+                                  filename, 
+                                  channel_naming = experiment.metadata["name_metadata"])
     except Exception as e:
         raise util.CytoflowError("FCS reader threw an error reading data for tube {}"
                                  .format(filename)) from e
             
-    return tube_data
+    return tube_meta, tube_data
 

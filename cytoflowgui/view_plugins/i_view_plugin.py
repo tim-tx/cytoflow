@@ -26,9 +26,10 @@ import os
 
 from pyface.qt import QtGui
 
-from traits.api import (Interface, Str, HasTraits, Instance, Event, 
-                        List, Property, on_trait_change, HTML, Any)
-from traitsui.api import View, Item, Handler, HGroup, TextEditor
+from traits.api import (Interface, Str, HasTraits, Instance, Event,
+                        List, Property, on_trait_change, HTML, Any, Bool,
+                        Tuple, Enum, Constant)
+from traitsui.api import View, Item, Handler, HGroup, TextEditor, InstanceEditor, TupleEditor
 
 import cytoflow.utility as util
 
@@ -36,6 +37,7 @@ from cytoflowgui.subset import ISubset
 from cytoflowgui.workflow import Changed
 from cytoflowgui.workflow_item import WorkflowItem
 from cytoflowgui.flow_task_pane import TabListEditor
+from cytoflowgui.serialization import traits_repr
 
 VIEW_PLUGIN_EXT = 'edu.mit.synbio.cytoflow.view_plugins'
 
@@ -56,22 +58,58 @@ class IViewPlugin(Interface):
         The view's "short" name - for menus, toolbar tips, etc.
     """
     
-    view_id = Str
-    short_name = Str
+    id = Constant("FIXME")
+    view_id = Constant("FIXME")
+    short_name = Constant("FIXME")
 
     def get_view(self):
-        """Return an IView instance that this plugin wraps"""
+        """
+        Gets the IView instance that this plugin wraps.
         
-    
+        Returns
+        -------
+        :class:`IView`
+            An instance of the view that this plugin wraps
+        """
+        
     def get_icon(self):
         """
         Returns an icon for this plugin
+        
+        Returns
+        -------
+        :class:`pyface.ImageResource`
+            The icon, 32x32        
         """
+        
+    def get_plugin(self):
+        """
+        Returns an instance of :class:`envisage.Plugin` implementing
+        :class:`.IViewPlugin`.  Usually returns ``self``.
+        
+        Returns
+        -------
+        :class:`envisage.Plugin`
+        """
+        
 class PluginHelpMixin(HasTraits):
+    """
+    A mixin to get online HTML help for a class.  It determines the HTML
+    path name from the class name.
+    """
     
     _cached_help = HTML
     
     def get_help(self):
+        """
+        Gets the HTML help for this class.
+        
+        Returns
+        -------
+        string
+            The HTML help in a single string.
+        """
+        
         if self._cached_help == "":
             current_dir = os.path.abspath(__file__)
             help_dir = os.path.split(current_dir)[0]
@@ -93,6 +131,178 @@ class PluginHelpMixin(HasTraits):
                 self._cached_help = f.read()
                  
         return self._cached_help
+    
+        
+class EmptyPlotParams(HasTraits):
+     
+    def default_traits_view(self):
+        return View()
+    
+class BasePlotParams(HasTraits):
+    title = Str
+    xlabel = Str
+    ylabel = Str
+    huelabel = Str
+
+    col_wrap = util.PositiveCInt(None, allow_zero = False, allow_none = True)
+
+    sns_style = Enum(['whitegrid', 'darkgrid', 'white', 'dark', 'ticks'])
+    sns_context = Enum(['talk', 'poster', 'notebook', 'paper'])
+
+    legend = Bool(True)
+    sharex = Bool(True)
+    sharey = Bool(True)
+    despine = Bool(True)
+    
+    def default_traits_view(self):
+        return View(
+                    Item('title',
+                         editor = TextEditor(auto_set = False)),
+                    Item('xlabel',
+                         label = "X label",
+                         editor = TextEditor(auto_set = False)),
+                    Item('ylabel',
+                         label = "Y label",
+                         editor = TextEditor(auto_set = False)),
+                    Item('huelabel',
+                         label = "Hue label",
+                         editor = TextEditor(auto_set = False)),
+
+                    Item('col_wrap',
+                         label = "Columns",
+                         editor = TextEditor(auto_set = False,
+                                             format_func = lambda x: "" if x == None else str(x))),
+                    Item('sns_style',
+                         label = "Style"),
+                    Item('sns_context',
+                         label = "Context"),
+                    Item('legend'),
+                    Item('sharex',
+                         label = "Share\nX axis?"),
+                    Item('sharey',
+                         label = "Share\nY axis?"),
+                    Item('despine',
+                         label = "Despine?"))
+        
+    def __repr__(self):
+        return traits_repr(self)
+    
+class DataPlotParams(BasePlotParams):
+    
+    min_quantile = util.PositiveCFloat(0.001)
+    max_quantile = util.PositiveCFloat(1.00)   
+    
+    def default_traits_view(self):
+        base_view = BasePlotParams.default_traits_view(self)
+    
+        return View(Item('min_quantile',
+                         editor = TextEditor(auto_set = False)),
+                    Item('max_quantile',
+                         editor = TextEditor(auto_set = False)),
+                    base_view.content)
+    
+class Data1DPlotParams(DataPlotParams):
+    
+    lim = Tuple(util.FloatOrNone(None), util.FloatOrNone(None))   
+    orientation = Enum('vertical', 'horizontal')
+    
+    def default_traits_view(self):
+        base_view = BasePlotParams.default_traits_view(self)
+    
+        return View(Item('orientation'),
+                    Item('lim',
+                         label = "Data\nLimits",
+                         editor = TupleEditor(editors = [TextEditor(auto_set = False,
+                                                                    evaluate = float,
+                                                                    format_func = lambda x: "" if x == None else str(x)),
+                                                         TextEditor(auto_set = False,
+                                                                    evaluate = float,
+                                                                    format_func = lambda x: "" if x == None else str(x))],
+                                              labels = ["Min", "Max"],
+                                              cols = 1)),
+                    base_view.content)
+        
+class Data2DPlotParams(DataPlotParams):
+    
+    xlim = Tuple(util.FloatOrNone(None), util.FloatOrNone(None))   
+    ylim = Tuple(util.FloatOrNone(None), util.FloatOrNone(None))   
+    
+    def default_traits_view(self):
+        base_view = BasePlotParams.default_traits_view(self)
+    
+        return View(Item('xlim',
+                         label = "X Limits",
+                         editor = TupleEditor(editors = [TextEditor(auto_set = False,
+                                                                    evaluate = float,
+                                                                    format_func = lambda x: "" if x == None else str(x)),
+                                                         TextEditor(auto_set = False,
+                                                                    evaluate = float,
+                                                                    format_func = lambda x: "" if x == None else str(x))],
+                                              labels = ["Min", "Max"],
+                                              cols = 1)),
+                    Item('ylim',
+                         label = "Y Limits",
+                         editor = TupleEditor(editors = [TextEditor(auto_set = False,
+                                                                    evaluate = float,
+                                                                    format_func = lambda x: "" if x == None else str(x)),
+                                                         TextEditor(auto_set = False,
+                                                                    evaluate = float,
+                                                                    format_func = lambda x: "" if x == None else str(x))],
+                                              labels = ["Min", "Max"],
+                                              cols = 1)),
+                    base_view.content)
+        
+class Stats1DPlotParams(BasePlotParams):
+    
+    orientation = Enum(["vertical", "horizontal"])
+    lim = Tuple(util.FloatOrNone(None), util.FloatOrNone(None)) 
+    
+    def default_traits_view(self):
+        base_view = BasePlotParams.default_traits_view(self)
+        
+        return View(Item('orientation'),
+                    Item('lim',
+                         label = "Limits",
+                         editor = TupleEditor(editors = [TextEditor(auto_set = False,
+                                                                    evaluate = float,
+                                                                    format_func = lambda x: "" if x == None else str(x)),
+                                                         TextEditor(auto_set = False,
+                                                                    evaluate = float,
+                                                                    format_func = lambda x: "" if x == None else str(x))],
+                                              labels = ["Min", "Max"],
+                                              cols = 1)),
+                    base_view.content)  
+        
+class Stats2DPlotParams(BasePlotParams):
+    
+    xlim = Tuple(util.FloatOrNone(None), util.FloatOrNone(None)) 
+    ylim = Tuple(util.FloatOrNone(None), util.FloatOrNone(None)) 
+    
+    def default_traits_view(self):
+        base_view = BasePlotParams.default_traits_view(self)
+        
+        return View(Item('xlim',
+                         label = "X Limits",
+                         editor = TupleEditor(editors = [TextEditor(auto_set = False,
+                                                                    evaluate = float,
+                                                                    format_func = lambda x: "" if x == None else str(x)),
+                                                         TextEditor(auto_set = False,
+                                                                    evaluate = float,
+                                                                    format_func = lambda x: "" if x == None else str(x))],
+                                              labels = ["Min", "Max"],
+                                              cols = 1)),
+                    Item('ylim',
+                         label = "Y Limits",
+                         editor = TupleEditor(editors = [TextEditor(auto_set = False,
+                                                                    evaluate = float,
+                                                                    format_func = lambda x: "" if x == None else str(x)),
+                                                         TextEditor(auto_set = False,
+                                                                    evaluate = float,
+                                                                    format_func = lambda x: "" if x == None else str(x))],
+                                              labels = ["Min", "Max"],
+                                              cols = 1)),
+                    base_view.content)  
+    
                         
 class PluginViewMixin(HasTraits):
     handler = Instance(Handler, transient = True)    
@@ -105,6 +315,9 @@ class PluginViewMixin(HasTraits):
     plot_names_by = Str(status = True)
     current_plot = Any
     
+    # kwargs to pass to plot()
+    plot_params = Instance(EmptyPlotParams, ())
+    
     subset_list = List(ISubset)
     subset = Property(Str, depends_on = "subset_list.str")
         
@@ -115,6 +328,10 @@ class PluginViewMixin(HasTraits):
     @on_trait_change('subset_list.str')
     def _subset_changed(self, obj, name, old, new):
         self.changed = (Changed.VIEW, (self, 'subset_list', self.subset_list))  
+        
+    @on_trait_change('plot_params.+', post_init = True)
+    def _plot_params_changed(self, obj, name, old, new):
+        self.changed = (Changed.VIEW, (self, 'plot_params', self.plot_params))
             
     def should_plot(self, changed, payload):
         """
@@ -129,9 +346,12 @@ class PluginViewMixin(HasTraits):
     
     def plot_wi(self, wi):
         if self.plot_names:
-            self.plot(wi.result, plot_name = self.current_plot)
+            self.plot(wi.result, 
+                      plot_name = self.current_plot,
+                      **self.plot_params.trait_get())
         else:
-            self.plot(wi.result)
+            self.plot(wi.result,
+                      **self.plot_params.trait_get())
             
     def enum_plots_wi(self, wi):
         try:
@@ -150,13 +370,13 @@ class PluginViewMixin(HasTraits):
                 self.plot_names = plot_names
                 try:
                     self.plot_names_by = ", ".join(plot_iter.by)
-                except Exception as e:
+                except Exception:
                     self.plot_names_by = ""
                     
                 if self.current_plot == None:
                     self.current_plot = self.plot_names[0]
                     
-        except Exception as e:
+        except Exception:
             self.current_plot = None
             self.plot_names = []
 
@@ -183,6 +403,11 @@ class ViewHandlerMixin(HasTraits):
                      editor = TabListEditor(name = 'plot_names'),
                      style = 'custom',
                      show_label = False)))
+        
+    plot_params_traits = View(Item('plot_params',
+                                   editor = InstanceEditor(),
+                                   style = 'custom',
+                                   show_label = False))
     
     context = Instance(WorkflowItem)
     
@@ -194,29 +419,29 @@ class ViewHandlerMixin(HasTraits):
     # MAGIC: gets value for property "conditions_names"
     def _get_conditions_names(self):
         if self.context and self.context.conditions:
-            return list(self.context.conditions.keys())
+            return sorted(list(self.context.conditions.keys()))
         else:
             return []
     
     # MAGIC: gets value for property "previous_conditions_names"
     def _get_previous_conditions_names(self):
         if self.context and self.context.previous_wi and self.context.previous_wi.conditions:
-            return list(self.context.previous_wi.conditions.keys())
+            return sorted(list(self.context.previous_wi.conditions.keys()))
         else:
             return []
         
     # MAGIC: gets value for property "statistics_names"
     def _get_statistics_names(self):
         if self.context and self.context.statistics:
-            return list(self.context.statistics.keys())
+            return sorted(list(self.context.statistics.keys()))
         else:
             return []
 
     # MAGIC: gets value for property "numeric_statistics_names"
     def _get_numeric_statistics_names(self):
         if self.context and self.context.statistics:
-            return [x for x in list(self.context.statistics.keys())
-                            if util.is_numeric(self.context.statistics[x])]
+            return sorted([x for x in list(self.context.statistics.keys())
+                                 if util.is_numeric(self.context.statistics[x])])
         else:
             return []
 

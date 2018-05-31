@@ -66,7 +66,7 @@ Draw a threshold gate.  To set a new threshold, click on the plot.
     
 '''
 
-from traits.api import provides, Callable, Instance, Str, DelegatesTo
+from traits.api import provides, Callable, Instance, Str, CFloat, DelegatesTo
 from traitsui.api import View, Item, EnumEditor, Controller, VGroup, TextEditor
 from envisage.api import Plugin, contributes_to
 from pyface.api import ImageResource
@@ -77,6 +77,7 @@ from cytoflow.operations.threshold import ThresholdOp, ThresholdSelection
 from cytoflowgui.op_plugins.i_op_plugin \
     import IOperationPlugin, OpHandlerMixin, PluginOpMixin, OP_PLUGIN_EXT, shared_op_traits, PluginHelpMixin
 from cytoflowgui.view_plugins.i_view_plugin import ViewHandlerMixin, PluginViewMixin
+from cytoflowgui.view_plugins.histogram import HistogramPlotParams
 from cytoflowgui.subset import SubsetListEditor
 from cytoflowgui.color_text_editor import ColorTextEditor
 from cytoflowgui.ext_enum_editor import ExtendableEnumEditor
@@ -133,6 +134,7 @@ class ThresholdSelectionView(PluginViewMixin, ThresholdSelection):
     handler_factory = Callable(ThresholdViewHandler, transient = True)    
     op = Instance(IOperation, fixed = True)
     threshold = DelegatesTo('op', status = True)
+    plot_params = Instance(HistogramPlotParams, ())
     name = Str
     
     def should_plot(self, changed, payload):
@@ -142,21 +144,24 @@ class ThresholdSelectionView(PluginViewMixin, ThresholdSelection):
             return False
         
     def plot_wi(self, wi):        
-        self.plot(wi.previous_wi.result)
+        self.plot(wi.previous_wi.result, **self.plot_params.trait_get())
         
     def get_notebook_code(self, idx):
         view = ThresholdSelection()
         view.copy_traits(self, view.copyable_trait_names())
+        plot_params_str = traits_str(self.plot_params)
         
         return dedent("""
-        op_{idx}.default_view({traits}).plot(ex_{prev_idx})
+        op_{idx}.default_view({traits}).plot(ex_{prev_idx}{plot_params})
         """
         .format(idx = idx, 
                 traits = traits_str(view),
-                prev_idx = idx - 1))
+                prev_idx = idx - 1,
+                plot_params = ", " + plot_params_str if plot_params_str else ""))
     
 class ThresholdPluginOp(PluginOpMixin, ThresholdOp):
     handler_factory = Callable(ThresholdHandler, transient = True)
+    threshold = CFloat
      
     def default_view(self, **kwargs):
         return ThresholdSelectionView(op = self, **kwargs)
@@ -177,9 +182,6 @@ class ThresholdPluginOp(PluginOpMixin, ThresholdOp):
 
 @provides(IOperationPlugin)
 class ThresholdPlugin(Plugin, PluginHelpMixin):
-    """
-    class docs
-    """
     
     id = 'edu.mit.synbio.cytoflowgui.op_plugins.threshold'
     operation_id = 'edu.mit.synbio.cytoflow.operations.threshold'
@@ -208,13 +210,14 @@ def _dump(op):
 def _load(data, version):
     return ThresholdPluginOp(**data)
 
-@camel_registry.dumper(ThresholdSelectionView, 'threshold-view', version = 1)
+@camel_registry.dumper(ThresholdSelectionView, 'threshold-view', version = 2)
 def _dump_view(view):
     return dict(op = view.op,
                 scale = view.scale,
                 huefacet = view.huefacet,
-                subset_list = view.subset_list)
+                subset_list = view.subset_list,
+                plot_params = view.plot_params)
     
-@camel_registry.loader('threshold-view', version = 1)
+@camel_registry.loader('threshold-view', version = any)
 def _load_view(data, version):
     return ThresholdSelectionView(**data)

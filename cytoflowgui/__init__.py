@@ -34,12 +34,3 @@ sip.setapi(u'QTextStream', 2)
 sip.setapi(u'QTime', 2)
 sip.setapi(u'QUrl', 2)
 sip.setapi(u'QVariant', 2)
-
-import cytoflow
-__version__ = cytoflow.__version__
-
-from .run import run_gui
-
-# for the easy-install entry script
-easy_install_entry = lambda: run_gui([])
-

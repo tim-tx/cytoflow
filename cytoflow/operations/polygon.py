@@ -63,6 +63,7 @@ class PolygonOp(HasStrictTraits):
     
     You can set the verticies by hand, I suppose, but it's much easier to use
     the interactive view you get from :meth:`default_view` to do so.
+
     
     Examples
     --------
@@ -102,9 +103,24 @@ class PolygonOp(HasStrictTraits):
     .. plot::
         :context: close-figs
             
-        >>> p.default_view(huefacet = "Dox",
-        ...                xscale = 'log',
-        ...                yscale = 'log').plot(ex)
+        >>> df = p.default_view(huefacet = "Dox",
+        ...                    xscale = 'log',
+        ...                    yscale = 'log')
+        
+        >>> df.plot(ex)
+        
+    
+    .. note::
+       If you want to use the interactive default view in a Jupyter notebook,
+       make sure you say ``%matplotlib notebook`` in the first cell 
+       (instead of ``%matplotlib inline`` or similar).  Then call 
+       ``default_view()`` with ``interactive = True``::
+       
+           df = p.default_view(huefacet = "Dox",
+                               xscale = 'log',
+                               yscale = 'log',
+                               interactive = True)
+           df.plot(ex)
         
     Apply the gate, and show the result
     
@@ -131,6 +147,8 @@ class PolygonOp(HasStrictTraits):
     
     xscale = util.ScaleEnum()
     yscale = util.ScaleEnum()
+    
+    _selection_view = Instance('PolygonSelection', transient = True)
         
     def apply(self, experiment):
         """Applies the threshold to an experiment.
@@ -223,14 +241,14 @@ class PolygonOp(HasStrictTraits):
         new_experiment.add_condition(self.name, 
                                      "bool", 
                                      path.contains_points(xy_data))
-        new_experiment.history.append(self.clone_traits(transient = lambda t: True))
+        new_experiment.history.append(self.clone_traits(transient = lambda _: True))
             
         return new_experiment
     
     def default_view(self, **kwargs):
-        p = PolygonSelection(op = self)
-        p.trait_set(**kwargs)
-        return p 
+        self._selection_view = PolygonSelection(op = self)
+        self._selection_view.trait_set(**kwargs)
+        return self._selection_view
     
 @provides(ISelectionView)
 class PolygonSelection(Op2DView, ScatterplotView):
