@@ -1,3 +1,7 @@
+Pipfile
+Pipfile.lock
+_Logicle.cpython-*.so
+
 # Compiled python modules.
 *.pyc
 
