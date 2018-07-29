@@ -174,9 +174,9 @@ class BaseView(HasStrictTraits):
         
         for ax in g.axes.flatten():
             if xscale:
-                ax.set_xscale(xscale.name, **xscale.mpl_params) 
+                ax.set_xscale(xscale.name, **xscale.get_mpl_params(ax.get_xaxis())) 
             if yscale:
-                ax.set_yscale(yscale.name, **yscale.mpl_params)
+                ax.set_yscale(yscale.name, **yscale.get_mpl_params(ax.get_yaxis()))
             if xlim:
                 ax.set_xlim(xlim)
             if ylim:
@@ -250,11 +250,19 @@ class BaseView(HasStrictTraits):
                     g.add_legend(title = huelabel, legend_data = legend_data)
                     ax = g.axes.flat[0]
                     legend = ax.legend_
-                    for lh in legend.legendHandles:
-                        lh.set_alpha(1.0)
+                    self._update_legend(legend)
+#                     for lh in legend.legendHandles:
+#                         lh.set_facecolor(lh.get_facecolor())  # i don't know why
+#                         lh.set_edgecolor(lh.get_edgecolor())  # these are needed
+#                         lh.set_alpha(1.0)
                         
         if title:
-            plt.title(title)
+            if self.xfacet or self.yfacet:
+                plt.subplots_adjust(top=0.9)
+            else:
+                plt.subplots_adjust(top=0.94)
+                
+            plt.suptitle(title)
             
         if xlabel == "":
             xlabel = None
@@ -272,6 +280,9 @@ class BaseView(HasStrictTraits):
                     
     def _grid_plot(self, experiment, grid, xlim, ylim, xscale, yscale, **kwargs):
         raise NotImplementedError("You must override _grid_plot in a derived class")
+    
+    def _update_legend(self, legend):
+        pass  # no-op
         
 class BaseDataView(BaseView):
     """

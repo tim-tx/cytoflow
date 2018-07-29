@@ -22,10 +22,6 @@ addons:
       - g++
       - gfortran
       - swig3.0
-      - python3-pyqt4
-      - libblas-dev
-      - liblapack-dev
-      - libatlas-dev
 
 before_install:
 
@@ -75,7 +71,7 @@ script: nose2 -c packaging/nose2.cfg -s cytoflow/tests -N 2
 
 after_success:
 
-  - pip install "sphinx==1.6.7" "pyinstaller==3.3.1"
+  - pip install "sphinx==1.7.5" "pyinstaller==3.3.1"
   - python setup.py build_sphinx -b embedded_help
 
   - if [[ "$TRAVIS_OS_NAME" != "osx" ]]; then python setup.py sdist; fi
@@ -83,7 +79,6 @@ after_success:
 
   # Build the one-click executables
   - LD_LIBRARY_PATH=${CONDA_PREFIX}/lib pyinstaller --log-level=DEBUG packaging/pyinstaller.spec
-  - pyi-archive_viewer -l dist/cytoflow
   - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then cd dist/; mv Cytoflow.app Cytoflow-${CONDA_TAG}.app; zip -r cytoflow-${CONDA_TAG}.macos.zip Cytoflow-${CONDA_TAG}.app/; rm -rf Cytoflow-${CONDA_TAG}.app cytoflow; cd ..; fi
   - if [[ "$TRAVIS_OS_NAME" != "osx" ]]; then mv dist/cytoflow dist/cytoflow-${CONDA_TAG}-linux.x86_64; fi
   
@@ -135,6 +130,18 @@ deploy:
     skip_cleanup: true
     on:
       branch: master
+      
+  - provider: bintray
+    edge:
+      branch: v1.8.47
+    file: packaging/bintray.json
+    user: bpteague
+    key:
+      secure: "hLQQ+za4pnBc0m3caWEW7KaK40DlR97JBuTPil4HMrr/hsG8HQOnRM6ofVd0+jGI4UxEitfPFXiIu1ECQ9ikakmMKDbOKjTXwdQKxFuvjvGLGJmA3nK8SfrZJkrM2iUEj8/0Yqj5knS+gyW4dn9mCxa4oEOehXpMPnq3sh3U3gzZba6sZ/3Dn/NZQpqbg5SJ0yGVrme5LWx+nmZvaodmcy7wRxliXMggJkPH+OVcFB39xAdPJIkQCzN/0r50c4mKp+lUo8beQqvbdJt/dXwqsByVgPZtXxiglzkyJdELgoePGGt26xnXRgcySrOC6548JRyv5848I+x5q0ncID4qYuFHqJjnpT87Pz3kZSC9aAvfIJA8iFGpM38oMsCEjMykPXr5XHOS8A5mSY+Zcy/adrtp7N/M14gEMVE4jpkRWb9QKjXXQa06Z65IARbINuauJcYyX5gXJ2jpMN0Jd4oov2thWPLZFIaRy9Ps3ISOSbvEKNgAY9vzHHFhSsPRdFydIMPbkVVqkgN+HyB+C9mo/BMIz8/uviEKxPPGxaT+iAKBtr5riS6GNvpUgkEforVwHkztjjUtyP7PzMcA2FfigIyArcFkICmMeGG9CY+wMAoL2DRhe1FTuonHrielhVwYFrlUMTAiFZeJcZzlwNS4kVl5zjnChLbSUnxXP2izj/k="
+    dry-run: false
+    skip_cleanup: true
+    on:
+      branch: qt5_v2
 
   - provider: pypi
     edge:

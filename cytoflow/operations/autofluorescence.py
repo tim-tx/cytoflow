@@ -21,6 +21,7 @@ cytoflow.operations.autofluorescence
 ------------------------------------
 """
 
+from warnings import warn
 from traits.api import (HasStrictTraits, Str, Float, File, Dict,
                         Instance, List, Constant, Tuple, Array, provides)
                        
@@ -66,6 +67,7 @@ class AutofluorescenceOp(HasStrictTraits):
         Occasionally, you'll need to specify the experimental conditions that
         the blank tube was collected under (to apply the operations in the 
         history.)  Specify them here.
+
         
     Examples
     --------
@@ -162,29 +164,33 @@ class AutofluorescenceOp(HasStrictTraits):
         self._af_histogram.clear()
         
         # make a little Experiment
-        conditions = {k: experiment.data[k].dtype.name for k in self.blank_conditions.keys()}
+        conditions = {k: experiment.data[k].dtype.name for k in self.blank_file_conditions.keys()}
         channels = {experiment.metadata[c]["fcs_name"] : c for c in experiment.channels}
         name_metadata = experiment.metadata['name_metadata']
         if ( self.blank_file != '' ):
             check_tube(self.blank_file, experiment)
             blank_exp = ImportOp(tubes = [Tube(file = self.blank_file,
-                                               conditions = self.blank_conditions)], 
+                                               conditions = self.blank_file_conditions)], 
                                  conditions = conditions,
                                  channels = channels,
                                  name_metadata = name_metadata).apply()
         else:
-            blank_exp = ImportOp(tubes = [Tube(file = self.blank_frame,
-                                               conditions = self.blank_conditions)], 
+            blank_exp = ImportOp(tubes = [Tube(frame = self.blank_frame,
+                                               conditions = self.blank_file_conditions)], 
                                  conditions = conditions,
                                  channels = channels,
                                  name_metadata = name_metadata).apply()
         # apply previous operations
         for op in experiment.history:
-            try:
-                op.estimate(blank_exp)
-            except Exception:
-                pass
-            
+            if hasattr(op, 'by'):
+                for by in op.by:
+                    if 'experiment' in experiment.metadata[by]:
+                        warn("Found experimental metadata {} in experiment history; "
+                             "make sure it's specified in blank_file_conditions."
+                             .format(by),
+                             util.CytoflowOpWarning)
+
+                    
             blank_exp = op.apply(blank_exp)
             
         # subset it
@@ -212,7 +218,6 @@ class AutofluorescenceOp(HasStrictTraits):
             
             self._af_median[channel] = np.median(blank_exp[channel])
             self._af_stdev[channel] = np.std(blank_exp[channel])    
-            self._af_histogram[channel] = np.histogram(blank_exp[channel], bins = 250)
                 
     def apply(self, experiment):
         """

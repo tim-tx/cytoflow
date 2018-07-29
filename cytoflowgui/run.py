@@ -29,10 +29,8 @@ except:
     # if there's no console, this fails
     pass
 
-import sys, multiprocessing, logging, traceback, threading
+import sys, multiprocessing, logging, traceback, threading, argparse
 
-from traits.etsconfig.api import ETSConfig
-ETSConfig.toolkit = 'qt4'
 
 def log_notification_handler(_, trait_name, old, new):
     
@@ -59,12 +57,45 @@ def log_excepthook(typ, val, tb):
                   .format(typ, val, tb_str))
                          
 def run_gui():
-    debug = ("--debug" in sys.argv)
+    
+    # this is ridiculous, but here's the situation.  Qt5 now uses Chromium
+    # as their web renderer.  Chromium needs OpenGL.  if you don't
+    # initialize OpoenGL here, things crash on some platforms.
+    
+    # so now i guess we depend on opengl too. 
+    
+    from OpenGL import GL  # @UnresolvedImport @UnusedImport
+    
+    # check that we're using the right Qt API
+    from pyface.qt import qt_api
+
+    cmd_line = " ".join(sys.argv)
+    
+    if qt_api == "pyside":
+        print("Cytoflow uses PyQT; but it is trying to use PySide instead.")
+        print(" - Make sure PyQT is installed.")
+        print(" - If both are installed, and you don't need both, uninstall PySide.")
+        print(" - If you must have both installed, select PyQT by setting the")
+        print("   environment variable QT_API to \"pyqt5\"")
+        print("   * eg, on Linux, type on the command line:")
+        print("     QT_API=\"pyqt5\" " + cmd_line)
+        print("   * on Windows, try: ")
+        print("     setx QT_API \"pyqt5\"")
+
+        sys.exit(1)
+    
+    # parse args
+    parser = argparse.ArgumentParser(description = 'Cytoflow GUI')
+    parser.add_argument("--debug", action = 'store_true')
+    parser.add_argument("filename", nargs='?', default = "")
+    
+    args = parser.parse_args()
+    
+    # start the remote process
 
     remote_process, remote_connection = start_remote_process()
     
-    # We want matplotlib to use our backend .... in both the GUI and the
-    # remote process
+    # Make matplotlib to use our backend
     
     import matplotlib
     matplotlib.use('module://cytoflowgui.matplotlib_backend')
@@ -73,10 +104,32 @@ def run_gui():
     import warnings
     warnings.filterwarnings('ignore', '.*is deprecated and replaced with.*')
     
+    # if we're frozen, add _MEIPASS to the pyface search path for icons etc
+    if getattr(sys, 'frozen', False):
+        from pyface.resource_manager import resource_manager
+        resource_manager.extra_paths.append(sys._MEIPASS)    # @UndefinedVariable
+        
+    # these three lines stop pkg_resources from trying to load resources
+    # from the __main__ module, which is frozen (and thus not loadable.)
+    from pyface.image_resource import ImageResource
+    icon = ImageResource('icon')
+    icon.search_path = []
+    
     # monkey patch the resource manager to use SVGs for icons
     import pyface.resource.resource_manager
     pyface.resource.resource_manager.ResourceManager.IMAGE_EXTENSIONS.append('.svg')
     
+    # monkey patch checklist editor to stop lowercasing
+    import traitsui.qt4.check_list_editor  # @UnusedImport
+    traitsui.qt4.check_list_editor.capitalize = lambda s: s
+
+    # for some reason, the stack-checking code in Removed and Deprecated
+    # is really, really slow.  disable it.
+    from cytoflow.utility.custom_traits import Removed, Deprecated
+    Removed.gui = True
+    Deprecated.gui = True
+    
+    # define and install a message handler for Qt errors
     from traits.api import push_exception_handler
                              
     def QtMsgHandler(msg_type, msg_string):
@@ -86,10 +139,21 @@ def run_gui():
                      logging.ERROR,
                      logging.FATAL] [ int(msg_type) ]
         logging.log(log_level, 'Qt message: ' + msg_string.decode('utf-8'))
+        
+    from pyface.qt.QtCore import qInstallMessageHandler  # @UnresolvedImport
+    qInstallMessageHandler(QtMsgHandler)
+    
+    # install a global (gui) error handler for traits notifications
+    push_exception_handler(handler = log_notification_handler,
+                           reraise_exceptions = False, 
+                           main = True)
+    
+    sys.excepthook = log_excepthook
+    
+    # Import, then load, the envisage plugins
     
     from envisage.core_plugin import CorePlugin
     from envisage.ui.tasks.tasks_plugin import TasksPlugin
-    from pyface.image_resource import ImageResource
     
     from cytoflowgui.flow_task import FlowTaskPlugin
     from cytoflowgui.tasbe_task import TASBETaskPlugin
@@ -98,7 +162,7 @@ def run_gui():
     from cytoflowgui.op_plugins import (ImportPlugin, ThresholdPlugin, RangePlugin, QuadPlugin,
                             Range2DPlugin, PolygonPlugin, BinningPlugin,
                             GaussianMixture1DPlugin, GaussianMixture2DPlugin,
-                            BleedthroughLinearPlugin, BleedthroughPiecewisePlugin,
+                            BleedthroughLinearPlugin,
                             BeadCalibrationPlugin, AutofluorescencePlugin,
                             ColorTranslationPlugin, TasbePlugin, 
                             ChannelStatisticPlugin, TransformStatisticPlugin, 
@@ -109,98 +173,59 @@ def run_gui():
                               BarChartPlugin, Stats1DPlugin, Kde1DPlugin, Kde2DPlugin,
                               ViolinPlotPlugin, TablePlugin, Stats2DPlugin, DensityPlugin,
                               ParallelCoordinatesPlugin, RadvizPlugin)
-    
-    from cytoflow.utility.custom_traits import Removed, Deprecated
-    Removed.gui = True
-    Deprecated.gui = True
-    
-    from pyface.qt import qt_api
-
-    cmd_line = " ".join(sys.argv)
-    
-    if qt_api == "pyside":
-        print("Cytoflow uses PyQT; but it is trying to use PySide instead.")
-        print(" - Make sure PyQT is installed.")
-        print(" - If both are installed, and you don't need both, uninstall PySide.")
-        print(" - If you must have both installed, select PyQT by setting the")
-        print("   environment variable QT_API to \"pyqt\"")
-        print("   * eg, on Linux, type on the command line:")
-        print("     QT_API=\"pyqt\" " + cmd_line)
-        print("   * on Windows, try: ")
-        print("     setx QT_API \"pyqt\"")
-
-        sys.exit(1)
-        
-    #from pyface.qt.QtCore import qInstallMsgHandler  # @UnresolvedImport
-    #qInstallMsgHandler(QtMsgHandler)
-    
-    # if we're frozen, add _MEIPASS to the pyface search path for icons etc
-    if getattr(sys, 'frozen', False):
-        from pyface.resource_manager import resource_manager
-        resource_manager.extra_paths.append(sys._MEIPASS)    # @UndefinedVariable
-
-    # install a global (gui) error handler for traits notifications
-    push_exception_handler(handler = log_notification_handler,
-                           reraise_exceptions = False, 
-                           main = True)
-    
-    sys.excepthook = log_excepthook
 
     plugins = [CorePlugin(), TasksPlugin(), FlowTaskPlugin(), TASBETaskPlugin(),
                ExportFigurePlugin()]    
-    
-    # reverse of the order on the toolbar
-    view_plugins = [TablePlugin(),
-                    Stats2DPlugin(),
-                    Stats1DPlugin(),
-                    BarChartPlugin(),
-                    ViolinPlotPlugin(),
+
+    # ordered as we want them to show up in the toolbar    
+    view_plugins = [HistogramPlugin(),
+                    ScatterplotPlugin(),
+                    Histogram2DPlugin(),
+                    DensityPlugin(),
+                    Kde1DPlugin(),
                     Kde2DPlugin(),
                     RadvizPlugin(),
                     ParallelCoordinatesPlugin(),
-                    Kde1DPlugin(),
-                    DensityPlugin(),
-                    Histogram2DPlugin(),
-                    ScatterplotPlugin(),
-                    HistogramPlugin()]
+                    ViolinPlotPlugin(),
+                    BarChartPlugin(),
+                    Stats1DPlugin(),
+                    Stats2DPlugin(),
+                    TablePlugin()]
     
     plugins.extend(view_plugins)
     
-    op_plugins = [RatioPlugin(),
-                  PCAPlugin(),
-                  KMeansPlugin(),
-                  FlowPeaksPlugin(),
-                  DensityGatePlugin(),
-                  TransformStatisticPlugin(),
-                  ChannelStatisticPlugin(),
-                  TasbePlugin(),
-                  ColorTranslationPlugin(),
-                  AutofluorescencePlugin(),
-                  BeadCalibrationPlugin(),
-#                   BleedthroughPiecewisePlugin(),
-                  BleedthroughLinearPlugin(),
-                  GaussianMixture2DPlugin(),
-                  GaussianMixture1DPlugin(),
-                  BinningPlugin(),
-                  PolygonPlugin(),
+    op_plugins = [ImportPlugin(),
+                  ThresholdPlugin(),
+                  RangePlugin(),
                   QuadPlugin(),
                   Range2DPlugin(),
-                  RangePlugin(),
-                  ThresholdPlugin(),
-                  ImportPlugin()]
+                  PolygonPlugin(),
+                  RatioPlugin(),
+                  ChannelStatisticPlugin(),
+                  TransformStatisticPlugin(),
+                  BinningPlugin(),
+                  GaussianMixture1DPlugin(),
+                  GaussianMixture2DPlugin(),
+                  DensityGatePlugin(),
+                  KMeansPlugin(),
+                  FlowPeaksPlugin(),
+                  PCAPlugin(),
+                  AutofluorescencePlugin(),
+                  BleedthroughLinearPlugin(),
+                  BeadCalibrationPlugin(),
+                  ColorTranslationPlugin(),
+                  TasbePlugin()]
 
     plugins.extend(op_plugins)
     
-    # these two lines stop pkg_resources from trying to load resources
-    # from the __main__ module, which is frozen (and thus not loadable.)
-    icon = ImageResource('icon')
-    icon.search_path = []
+    # start the app
 
     app = CytoflowApplication(id = 'edu.mit.synbio.cytoflow',
                               plugins = plugins,
                               icon = icon,
                               remote_connection = remote_connection,
-                              debug = debug)
+                              filename = args.filename,
+                              debug = args.debug)
     app.run()
     remote_process.join()
     logging.shutdown()

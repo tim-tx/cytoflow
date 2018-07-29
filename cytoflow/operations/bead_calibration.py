@@ -261,6 +261,7 @@ class BeadCalibrationOp(HasStrictTraits):
             
         channels = list(self.units.keys())
 
+        # make the histogram
         for channel in channels:
             data = beads_exp.data[channel]
             
@@ -284,9 +285,15 @@ class BeadCalibrationOp(HasStrictTraits):
             # smooth it with a Savitzky-Golay filter
             hist_smooth = scipy.signal.savgol_filter(hist[0], 5, 1)
             
-            self._histograms[channel] = (hist_bins, hist_smooth)
+            self._histograms[channel] = (hist, hist_bins, hist_smooth)
+
             
-            # find peaks
+        # find peaks
+        for channel in channels:
+            hist = self._histograms[channel][0]
+            hist_bins = self._histograms[channel][1]
+            hist_smooth = self._histograms[channel][2]
+
             peak_bins = scipy.signal.find_peaks_cwt(hist_smooth, 
                                                     widths = np.arange(3, 20),
                                                     max_distances = np.arange(3, 20) / 2)
@@ -298,7 +305,12 @@ class BeadCalibrationOp(HasStrictTraits):
                  and hist[1][x] > self.bead_brightness_threshold
                  and hist[1][x] < cutoff]
             
-            peaks = [hist_bins[x] for x in peak_bins_filtered]            
+            self._peaks[channel] = [hist_bins[x] for x in peak_bins_filtered]    
+
+
+        # compute the conversion        
+        for channel in channels:
+            peaks = self._peaks[channel]
             mef_unit = self.units[channel]
             
             if not mef_unit in self.beads:
@@ -321,12 +333,10 @@ class BeadCalibrationOp(HasStrictTraits):
             elif len(peaks) == 1:
                 # if we only have one peak, assume it's the brightest peak
                 a = mef[-1] / peaks[0]
-                self._peaks[channel] = peaks
                 self._mefs[channel] = [mef[-1]]
                 self._calibration_functions[channel] = lambda x, a=a: a * x
             elif len(peaks) == 2:
                 # if we have only two peaks, assume they're the brightest two
-                self._peaks[channel] = peaks
                 self._mefs[channel] = [mef[-2], mef[-1]]
                 a = (mef[-1] - mef[-2]) / (peaks[1] - peaks[0])
                 self._calibration_functions[channel] = lambda x, a=a: a * x
@@ -352,7 +362,6 @@ class BeadCalibrationOp(HasStrictTraits):
                     if resid < best_resid:
                         best_lr = lr[0]
                         best_resid = resid
-                        self._peaks[channel] = peaks
                         self._mefs[channel] = mef_subset
    
                 if self.force_linear:
@@ -456,6 +465,8 @@ class BeadCalibrationOp(HasStrictTraits):
             new_experiment.metadata[channel]['bead_units'] = self.units[channel]
             if 'range' in experiment.metadata[channel]:
                 new_experiment.metadata[channel]['range'] = calibration_fn(experiment.metadata[channel]['range'])
+            if 'voltage' in experiment.metadata[channel]:
+                del new_experiment.metadata[channel]['voltage']
             
         new_experiment.history.append(self.clone_traits(transient = lambda t: True)) 
         return new_experiment
@@ -612,16 +623,24 @@ class BeadCalibrationDiagnostic(HasStrictTraits):
         plt.figure()
         
         for idx, channel in enumerate(channels):            
-            hist_bins, hist_smooth = self.op._histograms[channel]
+            _, hist_bins, hist_smooth = self.op._histograms[channel]
                 
             plt.subplot(len(channels), 2, 2 * idx + 1)
             plt.xscale('log')
             plt.xlabel(channel)
             plt.plot(hist_bins[1:], hist_smooth)
+            
+            plt.axvline(self.op.bead_brightness_threshold, color = 'blue', linestyle = '--' )
+            if self.op.bead_brightness_cutoff:
+                plt.axvline(self.op.bead_brightness_cutoff, color = 'blue', linestyle = '--' )
+            else:
+                plt.axvline(experiment.metadata[channel]['range'] * 0.7, color = 'blue', linestyle = '--')                
 
-            if channel in self.op._peaks and channel in self.op._mefs:
+            if channel in self.op._peaks:
                 for peak in self.op._peaks[channel]:
                     plt.axvline(peak, color = 'r')
+                    
+            if channel in self.op._peaks and channel in self.op._mefs:
                 plt.subplot(len(channels), 2, 2 * idx + 2)
                 plt.xscale('log')
                 plt.yscale('log')

@@ -25,23 +25,19 @@ Created on Feb 11, 2015
 # from traits.etsconfig.api import ETSConfig
 # ETSConfig.toolkit = 'qt4'
 
-import os.path
+import os.path, pathlib
 
 from traits.api import Instance, Bool, Any, Event, CFloat, CInt, on_trait_change
 from traitsui.api import ButtonEditor, View, TextEditor, Item
 
 from pyface.tasks.api import Task, TaskLayout, PaneItem, TraitsDockPane, VSplitter
+from pyface.tasks.action.api import SMenuBar, SMenu, TaskToggleGroup
 from envisage.api import Plugin, contributes_to
 from envisage.ui.tasks.api import TaskFactory
-from pyface.api import FileDialog, OK
+from pyface.api import FileDialog, OK, error
 
-from cytoflow.operations import IOperation
-
-# from cytoflowgui.flow_task_pane import FlowTaskPane, getFlowTaskPane
 from cytoflowgui.workflow import Workflow
-from cytoflowgui.workflow_item import WorkflowItem
 
-from cytoflowgui.tasbe_calibration import TasbeCalibrationOp
 
 class PlotParamsPane(TraitsDockPane):
     
@@ -113,6 +109,9 @@ class ExportTask(Task):
     id = "edu.mit.synbio.cytoflowgui.export_task"
     name = "Export figure"
     
+    menu_bar = SMenuBar(SMenu(TaskToggleGroup(),
+                              id = 'View', name = '&View'))
+    
     # the main workflow instance.
     model = Instance(Workflow)
            
@@ -120,8 +119,8 @@ class ExportTask(Task):
     export_pane = Instance(TraitsDockPane)
     
     def _default_layout_default(self):
-        return TaskLayout(right = VSplitter(PaneItem("edu.mit.synbio.cytoflowgui.plot_params_pane"),
-                                            PaneItem("edu.mit.synbio.cytoflowgui.export_pane")))
+        return TaskLayout(right = VSplitter(PaneItem("edu.mit.synbio.cytoflowgui.plot_params_pane", width = 350),
+                                            PaneItem("edu.mit.synbio.cytoflowgui.export_pane", width = 350)))
      
     def create_central_pane(self):
         return self.application.plot_pane
@@ -144,7 +143,7 @@ class ExportTask(Task):
         """
         Shows a dialog to export a file
         """
-         
+                  
         f = ""
         filetypes_groups = self.application.plot_pane.canvas.get_supported_filetypes_grouped()
         filename_exts = []
@@ -165,6 +164,16 @@ class ExportTask(Task):
                 ext = sorted(selected_exts, key = len)[0]
                 dialog.path += "."
                 dialog.path += ext
+
+            if (self.export_pane.width * self.export_pane.dpi  > 2**16 or \
+                self.export_pane.height * self.export_pane.dpi > 2**16 or \
+                self.export_pane.width * self.export_pane.height * self.export_pane.dpi ** 2 > 2 ** 30) and \
+                pathlib.Path(dialog.path).suffix in ['png', 'pgf', 'raw', 'rgba', 'jpg', 'jpeg', 'bmp', 'pcx', 'tif', 'tiff', 'xpm']:
+                error(None, "Can't export raster images with a height or width larger than 65535 pixels, "
+                            "or a total image size of greater than 2**30 pixels. "
+                            "Decrease your image size or DPI, or use a vector format (like PDF or SVG).")
+                return                
+            
                  
             self.application.plot_pane.export(dialog.path, 
                                               width = self.export_pane.width,

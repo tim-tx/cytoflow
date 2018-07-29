@@ -90,7 +90,6 @@ from cytoflowgui.ext_enum_editor import ExtendableEnumEditor
 from cytoflowgui.view_plugins.i_view_plugin \
     import (IViewPlugin, VIEW_PLUGIN_EXT, ViewHandlerMixin, PluginViewMixin, 
             PluginHelpMixin, Data1DPlotParams)
-from cytoflowgui.view_plugins.stats_1d import LINE_STYLES
 from cytoflowgui.serialization import camel_registry, traits_repr, traits_str, dedent
 from cytoflowgui.util import IterWrapper
 
@@ -142,13 +141,16 @@ class HistogramHandler(ViewHandlerMixin, Controller):
                          editor = ColorTextEditor(foreground_color = "#000000",
                                                   background_color = "#ff9191"))))
         
+LINE_STYLES = ["solid", "dashed", "dashdot", "dotted"]
+        
 class HistogramPlotParams(Data1DPlotParams):
     
     num_bins = util.PositiveCInt(None, allow_none = True)
     histtype = Enum(['stepfilled', 'step', 'bar'])
     linestyle = Enum(LINE_STYLES)
     linewidth = util.PositiveCFloat(None, allow_none = True, allow_zero = True)
-    normed = Bool(False)
+    density = Bool(False)
+    alpha = util.PositiveCFloat(0.5, allow_zero = True)
     
     def default_traits_view(self):
         base_view = Data1DPlotParams.default_traits_view(self)
@@ -161,7 +163,9 @@ class HistogramPlotParams(Data1DPlotParams):
                     Item('linewidth',
                          editor = TextEditor(auto_set = False,
                                              format_func = lambda x: "" if x == None else str(x))),
-                    Item('normed'),
+                    Item('density'),
+                    Item('alpha',
+                         editor = TextEditor(auto_set = False)),
                     base_view.content)
     
 class HistogramPluginView(PluginViewMixin, HistogramView):
@@ -231,7 +235,80 @@ def _dump(view):
                 subset_list = view.subset_list,
                 plot_params = view.plot_params)
     
+@camel_registry.dumper(HistogramPluginView, 'histogram', version = 1)
+def _dump_v1(view):
+    return dict(channel = view.channel,
+                scale = view.scale,
+                xfacet = view.xfacet,
+                yfacet = view.yfacet,
+                huefacet = view.huefacet,
+                huescale = view.huescale,
+                plotfacet = view.plotfacet,
+                subset_list = view.subset_list)
+    
 @camel_registry.dumper(HistogramPlotParams, 'histogram-params', version = 1)
+def _dump_params_v1(params):
+    return dict(
+                # BasePlotParams
+                title = params.title,
+                xlabel = params.xlabel,
+                ylabel = params.ylabel,
+                huelabel = params.huelabel,
+                col_wrap = params.col_wrap,
+                sns_style = params.sns_style,
+                sns_context = params.sns_context,
+                legend = params.legend,
+                sharex = params.sharex,
+                sharey = params.sharey,
+                despine = params.despine,
+
+                # DataplotParams
+                min_quantile = params.min_quantile,
+                max_quantile = params.max_quantile,
+                
+                # Data1DPlotParams
+                lim = params.lim,
+                orientation = params.orientation,
+                
+                # Histogram
+                num_bins = params.num_bins,
+                histtype = params.histtype,
+                linestyle = params.linestyle,
+                linewidth = params.linewidth,
+                normed = params.density)
+    
+@camel_registry.dumper(HistogramPlotParams, 'histogram-params', version = 2)
+def _dump_params_v2(params):
+    return dict(
+                # BasePlotParams
+                title = params.title,
+                xlabel = params.xlabel,
+                ylabel = params.ylabel,
+                huelabel = params.huelabel,
+                col_wrap = params.col_wrap,
+                sns_style = params.sns_style,
+                sns_context = params.sns_context,
+                legend = params.legend,
+                sharex = params.sharex,
+                sharey = params.sharey,
+                despine = params.despine,
+
+                # DataplotParams
+                min_quantile = params.min_quantile,
+                max_quantile = params.max_quantile,
+                
+                # Data1DPlotParams
+                lim = params.lim,
+                orientation = params.orientation,
+                
+                # Histogram
+                num_bins = params.num_bins,
+                histtype = params.histtype,
+                linestyle = params.linestyle,
+                linewidth = params.linewidth,
+                density = params.density)
+    
+@camel_registry.dumper(HistogramPlotParams, 'histogram-params', version = 3)
 def _dump_params(params):
     return dict(
                 # BasePlotParams
@@ -260,12 +337,23 @@ def _dump_params(params):
                 histtype = params.histtype,
                 linestyle = params.linestyle,
                 linewidth = params.linewidth,
-                normed = params.normed)
+                density = params.density,
+                alpha = params.alpha)
     
 @camel_registry.loader('histogram', version = any)
 def _load(data, version):
     return HistogramPluginView(**data)
 
-@camel_registry.loader('histogram-params', version = any)
+@camel_registry.loader('histogram-params', version = 1)
+def _load_params_v1(data, version):
+    data['density'] = data['normed']
+    del data['normed']
+    return HistogramPlotParams(**data)
+
+@camel_registry.loader('histogram-params', version = 2)
+def _load_params_v2(data, version):
+    return HistogramPlotParams(**data)
+
+@camel_registry.loader('histogram-params', version = 3)
 def _load_params(data, version):
     return HistogramPlotParams(**data)

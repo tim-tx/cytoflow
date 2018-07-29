@@ -24,6 +24,8 @@ from pyface.api import ImageResource
 from pyface.qt import QtGui, QtCore
 
 from cytoflowgui.view_plugins import IViewPlugin
+from cytoflowgui.util import HintedMainWindow
+    
 
 class ViewDockPane(TraitsDockPane):
     """
@@ -93,7 +95,7 @@ class ViewDockPane(TraitsDockPane):
             self._actions[plugin.view_id] = task_action
             self.toolbar.append(task_action)
             
-        self._window = window = QtGui.QMainWindow()
+        self._window = window = HintedMainWindow()
         window.addToolBar(QtCore.Qt.RightToolBarArea, 
                           self.toolbar.create_tool_bar(window))
         

@@ -65,6 +65,18 @@ class ColorTranslationOp(HasStrictTraits):
         transfection), then weight the regression by the probability that the
         the cell is from the top (transfected) distribution.  Make sure you 
         check the diagnostic plots to see that this worked!
+        
+    linear_model : Bool (default = False)
+        Set this to ``True`` to get a scaling that is strictly multiplicative,
+        mirroring the TASBE approach.  Do check the diagnostic plot, though,
+        to see how well (or poorly) your model fits the data.
+        
+    control_conditions : Dict((Str, Str), Dict(Str, Any))
+        Occasionally, you'll need to specify the experimental conditions that
+        the bleedthrough tubes were collected under (to apply the operations in the 
+        history.)  Specify them here.  The key is a tuple of channel names; the 
+        value is a dictionary of the conditions (same as you would specify for a
+        :class:`~.Tube` )
 
         
     Notes
@@ -132,6 +144,8 @@ class ColorTranslationOp(HasStrictTraits):
     controls_frames = Dict(Tuple(Str, Str), Instance(DataFrame))
     mixture_model = Bool(False)
     linear_model = Bool(False)
+    
+    control_conditions = Dict(Tuple(Str, Str), Dict(Str, Any), {})
 
     # The regression coefficients determined by `estimate()`, used to map 
     # colors between channels.  The keys are tuples of (*from-channel*,
@@ -201,6 +215,10 @@ class ColorTranslationOp(HasStrictTraits):
                                            .format(from_channel, to_channel))
                 
             tube_file_or_frame = controls[(from_channel, to_channel)]
+            tube_conditions = self.control_conditions[(from_channel, to_channel)] \
+                                    if (from_channel, to_channel) in self.control_conditions \
+                                    else {}
+            conditions = {k: experiment.data[k].dtype.name for k in tube_conditions.keys()}
             
             if tube_file_or_frame not in tubes:
                 channels = {experiment.metadata[c]["fcs_name"] : c for c in experiment.channels}
@@ -208,15 +226,27 @@ class ColorTranslationOp(HasStrictTraits):
                 if (self.controls != {}):
                     # make a little Experiment
                     check_tube(tube_file_or_frame, experiment)
-                    tube_exp = ImportOp(tubes = [Tube(file = tube_file_or_frame)],
+                    tube_exp = ImportOp(tubes = [Tube(file = tube_file_or_frame,
+                                                      conditions = tube_conditions)],
+                                        conditions = conditions,
                                         channels = channels,
                                         name_metadata = name_metadata).apply()
                 else:
-                    tube_exp = ImportOp(tubes = [Tube(frame = tube_file_or_frame)],
+                    tube_exp = ImportOp(tubes = [Tube(frame = tube_file_or_frame,
+                                                      conditions = tube_conditions)],
+                                        conditions = conditions,
                                         channels = channels,
                                         name_metadata = name_metadata).apply()
+
                 # apply previous operations
                 for op in experiment.history:
+                    if hasattr(op, 'by'):
+                        for by in op.by:
+                            if 'experiment' in experiment.metadata[by]:
+                                raise util.CytoflowOpError('experiment',
+                                                           "Prior to applying this operation, "
+                                                           "you must not apply any operation with 'by' "
+                                                           "set to an experimental condition.")
                     tube_exp = op.apply(tube_exp) 
 
                 # subset the events

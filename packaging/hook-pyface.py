@@ -1,14 +1,7 @@
-# from PyInstaller.compat import is_darwin
-from PyInstaller.utils.hooks import (logger, collect_data_files, 
-                                     collect_submodules)
-import os
+from PyInstaller.utils.hooks import (copy_metadata, collect_submodules, 
+                                     collect_data_files)
+datas = copy_metadata('pyface') + collect_data_files('pyface')
 
-# get some missing datas and dynamically loaded submodules
-datas = collect_data_files('pyface', 'images')
-hiddenimports = collect_submodules("pyface")
-# 
-# hiddenimports = collect_submodules("pyface", subdir = os.path.join("ui", "qt4"))
-# hiddenimports.extend(collect_submodules("pyface", subdir = os.path.join("ui", "qt4", "action")))
-# hiddenimports.extend(collect_submodules("pyface", subdir = os.path.join("ui", "qt4", "tasks")))
-
+hiddenimports = collect_submodules('pyface.ui.qt4') + \
+                collect_submodules('pyface.ui.qt4.action')
 

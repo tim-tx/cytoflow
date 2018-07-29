@@ -16,14 +16,16 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-import os, pathlib, urllib, urllib.parse
+import pathlib
 
 from traits.api import Instance, List, on_trait_change, Str, HTML
 from traitsui.api import View, Item, HTMLEditor
 from pyface.tasks.api import TraitsDockPane, Task
+from pyface.qt import QtGui
 
 from cytoflowgui.view_plugins import IViewPlugin
 from cytoflowgui.op_plugins import IOperationPlugin
+from cytoflowgui.util import HintedWidget
 
 class HelpDockPane(TraitsDockPane):
     """
@@ -48,6 +50,20 @@ class HelpDockPane(TraitsDockPane):
     traits_view = View(Item('html',
                             editor = HTMLEditor(base_url = pathlib.Path(__file__).parent.joinpath('help').as_posix()),
                             show_label = False))
+    
+    def create_contents(self, parent):
+        
+        self.ui = self.edit_traits(kind='subpanel', parent=parent)
+        
+        layout = QtGui.QHBoxLayout()
+        control = HintedWidget()
+        
+        layout.addWidget(self.ui.control)
+        control.setLayout(layout)
+        control.setParent(parent)
+        parent.setWidget(control)
+
+        return control
 
     
     @on_trait_change('help_id', post_init = True)

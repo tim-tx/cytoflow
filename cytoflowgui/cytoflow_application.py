@@ -32,7 +32,7 @@ from envisage.ui.tasks.api import TasksApplication
 from envisage.ui.tasks.tasks_application import TasksApplicationState
 from pyface.api import error
 from pyface.tasks.api import TaskWindowLayout
-from traits.api import Bool, Instance, List, Property, Str, Any
+from traits.api import Bool, Instance, List, Property, Str, Any, File
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +62,9 @@ class CytoflowApplication(TasksApplication):
 
     # are we debugging? at the moment, just for sending logs to the console
     debug = Bool
+
+    # did we get a filename on the command line?
+    filename = File
 
     # if there's an ERROR-level log message, drop it here     
     application_error = Str
@@ -108,9 +111,7 @@ class CytoflowApplication(TasksApplication):
          
         # must redirect to the gui thread
         self.on_trait_change(self.show_error, 'application_error', dispatch = 'ui')
-        
-        # monkey-patch traitsui.qt4.text_editor.SimpleEditor._
-        
+                
         # set up the model
         self.model = Workflow(remote_connection = self.remote_connection,
                               debug = self.debug)
@@ -129,16 +130,6 @@ class CytoflowApplication(TasksApplication):
     def stop(self):
         super().stop()
         self.model.shutdown_remote_process()
-#         
-#         
-#     def exit(self, force=False):
-# 
-#         ret = TasksApplication.exit(self, force=force)
-#         
-#         if ret:
-#             self.model.shutdown_remote_process()
-#             
-#         return ret
         
 
     preferences_helper = Instance(CytoflowPreferences)
@@ -152,7 +143,7 @@ class CytoflowApplication(TasksApplication):
         Loads saved application state, if possible.  Overload the envisage-
         defined one to fix a py3k bug and increment the TasksApplicationState
         version.
-        
+         
         """
         state = TasksApplicationState(version = 2)
         filename = os.path.join(self.state_location, 'application_memento')
@@ -163,24 +154,23 @@ class CytoflowApplication(TasksApplication):
                     restored_state = pickle.load(f)
                 if state.version == restored_state.version:
                     state = restored_state
+                     
+                    # make sure the active task is the main window
+                    state.previous_window_layouts[0].active_task = 'edu.mit.synbio.cytoflowgui.flow_task'
                 else:
                     logger.warn('Discarding outdated application layout')
             except:
                 # If anything goes wrong, log the error and continue.
                 logger.exception('Had a problem restoring application layout from %s',
                                  filename)
-                 
+                  
         self._state = state
      
     def _save_state(self):
         """
-        Saves the application state -- ONLY IF THE CYTOFLOW TASK IS ACTIVE
-        
+        Saves the application window size, position, panel locations, etc
         """
-        if self.active_window.active_task.id != "edu.mit.synbio.cytoflowgui.flow_task":
-            logger.info("Not saving application layout from TASBE task")
-            return
-        
+
         # Grab the current window layouts.
         window_layouts = [w.get_window_layout() for w in self.windows]
         self._state.previous_window_layouts = window_layouts
@@ -190,9 +180,9 @@ class CytoflowApplication(TasksApplication):
         try:
             with open(filename, 'wb') as f:
                 pickle.dump(self._state, f)
-        except:
+        except Exception as e:
             # If anything goes wrong, log the error and continue.
-            logger.exception('Had a problem saving application layout')
+            logger.exception('Had a problem saving application layout: {}'.format(str(e)))
     #### Trait initializers ###################################################
 
     def _default_layout_default(self):
@@ -200,7 +190,7 @@ class CytoflowApplication(TasksApplication):
         tasks = [ factory.id for factory in self.task_factories ]
         return [ TaskWindowLayout(*tasks,
                                   active_task = active_task,
-                                  size = (800, 600)) ]
+                                  size = (1280, 800)) ]
 
     def _preferences_helper_default(self):
         return CytoflowPreferences(preferences = self.preferences)

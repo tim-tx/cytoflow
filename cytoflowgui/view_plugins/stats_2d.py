@@ -261,7 +261,7 @@ class Stats2DHandler(ViewHandlerMixin, Controller):
         if not (self.context and self.context.statistics 
                 and self.model.xstatistic in self.context.statistics
                 and self.model.ystatistic in self.context.statistics):
-            return []
+            return {}
         
         xstat = self.context.statistics[self.model.xstatistic]
         ystat = self.context.statistics[self.model.ystatistic]
@@ -287,7 +287,7 @@ class Stats2DPluginPlotParams(Stats2DPlotParams):
     linestyle = Enum(LINE_STYLES)
     marker = Enum(SCATTERPLOT_MARKERS)
     markersize = util.PositiveCFloat(6, allow_zero = False)
-    capsize = util.PositiveCFloat(0, allow_zero = False)
+    capsize = util.PositiveCFloat(None, allow_none = True, allow_zero = False)
     alpha = util.PositiveCFloat(1.0)
     
     def default_traits_view(self):
@@ -356,6 +356,21 @@ def _dump(view):
                 y_error_statistic = view.y_error_statistic,
                 subset_list = view.subset_list,
                 plot_params = view.plot_params)
+    
+@camel_registry.dumper(Stats2DPluginView, 'stats-2d', version = 1)
+def _dump_v1(view):
+    return dict(xstatistic = view.xstatistic,
+                xscale = view.xscale,
+                ystatistic = view.ystatistic,
+                yscale = view.yscale,
+                variable = view.variable,
+                xfacet = view.xfacet,
+                yfacet = view.yfacet,
+                huefacet = view.huefacet,
+                huescale = view.huescale,
+                x_error_statistic = view.x_error_statistic,
+                y_error_statistic = view.y_error_statistic,
+                subset_list = view.subset_list)
 
 
 @camel_registry.loader('stats-2d', version = any)

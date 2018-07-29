@@ -353,12 +353,6 @@ class TasbePluginOp(PluginOpMixin):
                 
         for control in to_remove:
             self.bleedthrough_list.remove(control)
-            
-#         if self.to_channel:
-#             for c in self.channels:
-#                 if c == self.to_channel:
-#                     continue
-#                 self.translation_list.append()
              
         for c in self.channels:
             if c == self.to_channel:
@@ -377,23 +371,6 @@ class TasbePluginOp(PluginOpMixin):
             
         self.changed = (Changed.ESTIMATE, ('translation_list', self.translation_list))
         self.changed = (Changed.ESTIMATE, ('bleedthrough_list', self.bleedthrough_list))            
-#         self.changed = (Changed.ESTIMATE, ('units_list', self.units_list))
-        
-        
-#         self.bleedthrough_list = []
-#         for c in self.channels:
-#             self.bleedthrough_list.append(_BleedthroughControl(channel = c))
-#             
-#         self.changed = (Changed.ESTIMATE, ('bleedthrough_list', self.bleedthrough_list))
-#             
-#         self.translation_list = []
-#         if self.to_channel:
-#             for c in self.channels:
-#                 if c == self.to_channel:
-#                     continue
-#                 self.translation_list.append(_TranslationControl(from_channel = c,
-#                                                                  to_channel = self.to_channel))
-#         self.changed = (Changed.ESTIMATE, ('translation_list', self.translation_list))
 
 
     @on_trait_change('to_channel', post_init = True)
@@ -430,16 +407,26 @@ class TasbePluginOp(PluginOpMixin):
         self._af_op.channels = self.channels
         self._af_op.blank_file = self.blank_file
         
-        self._af_op.estimate(experiment, subset = self.subset)
-        self.changed = (Changed.ESTIMATE_RESULT, self)
+        try:
+            self._af_op.estimate(experiment, subset = self.subset)
+        except:
+            raise
+        finally:
+            self.changed = (Changed.ESTIMATE_RESULT, self)
+            
         experiment = self._af_op.apply(experiment)
         
         self._bleedthrough_op.controls.clear()
         for control in self.bleedthrough_list:
             self._bleedthrough_op.controls[control.channel] = control.file
 
-        self._bleedthrough_op.estimate(experiment, subset = self.subset) 
-        self.changed = (Changed.ESTIMATE_RESULT, self)
+        try:
+            self._bleedthrough_op.estimate(experiment, subset = self.subset)
+        except:
+            raise
+        finally:
+            self.changed = (Changed.ESTIMATE_RESULT, self)
+            
         experiment = self._bleedthrough_op.apply(experiment)
         
         self._bead_calibration_op.beads = BeadCalibrationOp.BEADS[self.beads_name]
@@ -457,8 +444,13 @@ class TasbePluginOp(PluginOpMixin):
         # this way matches TASBE better
         self._bead_calibration_op.units[self.to_channel] = self.beads_unit
             
-        self._bead_calibration_op.estimate(experiment)
-        self.changed = (Changed.ESTIMATE_RESULT, self)
+        try:
+            self._bead_calibration_op.estimate(experiment)
+        except:
+            raise
+        finally:
+            self.changed = (Changed.ESTIMATE_RESULT, self)
+            
         experiment = self._bead_calibration_op.apply(experiment)
         
         self._color_translation_op.mixture_model = self.mixture_model
@@ -467,10 +459,13 @@ class TasbePluginOp(PluginOpMixin):
         for control in self.translation_list:
             self._color_translation_op.controls[(control.from_channel,
                                                  control.to_channel)] = control.file
-                                                 
-        self._color_translation_op.estimate(experiment, subset = self.subset)                                         
-        
-        self.changed = (Changed.ESTIMATE_RESULT, self)
+            
+        try:                                     
+            self._color_translation_op.estimate(experiment, subset = self.subset)
+        except:
+            raise
+        finally:                                         
+            self.changed = (Changed.ESTIMATE_RESULT, self)
         
         
     def should_clear_estimate(self, changed, payload):
@@ -608,42 +603,25 @@ class TasbePluginView(PluginViewMixin):
         return True
         
     def plot(self, experiment, plot_name = None, **kwargs):
-        
-        if plot_name not in ["Autofluorescence", "Bleedthrough", "Bead Calibration", "Color Translation"]:
+
+        if experiment is None:
+            raise util.CytoflowViewError("No experiment to plot")
+                    
+        if plot_name == "Autofluorescence":
+            self.op._af_op.default_view().plot(experiment, **kwargs)
+        elif plot_name == "Bleedthrough":
+            self.op._bleedthrough_op.default_view().plot(experiment, **kwargs)
+            return
+        elif plot_name == "Bead Calibration":
+            self.op._bead_calibration_op.default_view().plot(experiment, **kwargs)
+        elif plot_name == "Color Translation":
+            self.op._color_translation_op.default_view().plot(experiment, **kwargs)
+        else:
             raise util.CytoflowViewError("Which plot do you want?  Must be one "
                                          "of \"Autofluorescence\", "
                                          "\"Bleedthrough\", \"Bead Calibration\", "
                                          "or \"Color Translation\"")
-                    
-        if experiment is None:
-            raise util.CytoflowViewError("No experiment to plot")
-        
-        new_ex = experiment.clone()
-        
-        # we don't need to actually apply any ops to data
-        new_ex.data = pd.DataFrame(data = {x : pd.Series() for x in new_ex.data})
-                    
-        if plot_name == "Autofluorescence":
-            self.op._af_op.default_view().plot(new_ex, **kwargs)
-            return
-        else:
-            new_ex = self.op._af_op.apply(new_ex)
-
-        if plot_name == "Bleedthrough":
-            self.op._bleedthrough_op.default_view().plot(new_ex, **kwargs)
-            return
-        else:
-            new_ex = self.op._bleedthrough_op.apply(new_ex)
             
-        if plot_name == "Bead Calibration":
-            self.op._bead_calibration_op.default_view().plot(new_ex, **kwargs)
-            return
-        else:
-            new_ex = self.op._bead_calibration_op.apply(new_ex)
-            
-        if plot_name == "Color Translation":
-            self.op._color_translation_op.default_view().plot(new_ex, **kwargs)
-            return
             
     def get_notebook_code(self, idx):
         

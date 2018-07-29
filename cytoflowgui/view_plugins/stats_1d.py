@@ -194,7 +194,7 @@ class Stats1DHandler(ViewHandlerMixin, Controller):
     def _get_levels(self):        
         if not (self.context and self.context.statistics 
                 and self.model.statistic in self.context.statistics):
-            return []
+            return {}
         
         stat = self.context.statistics[self.model.statistic]
         index = stat.index
@@ -324,6 +324,20 @@ def _dump(view):
                 error_statistic = view.error_statistic,
                 subset_list = view.subset_list,
                 plot_params = view.plot_params)
+    
+
+@camel_registry.dumper(Stats1DPluginView, 'stats-1d', version = 1)
+def _dump_v1(view):
+    return dict(statistic = view.statistic,
+                variable = view.variable,
+                xscale = view.xscale,
+                yscale = view.yscale,
+                xfacet = view.xfacet,
+                yfacet = view.yfacet,
+                huefacet = view.huefacet,
+                huescale = view.huescale,
+                error_statistic = view.error_statistic,
+                subset_list = view.subset_list)
     
 @camel_registry.loader('stats-1d', version = 1)
 def _load_v1(data, version):

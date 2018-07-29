@@ -75,6 +75,13 @@ class BleedthroughLinearOp(HasStrictTraits):
         ``("channel1", "channel2")`` is present as a key, 
         ``("channel2", "channel1")`` must also be present.  The module does not
         assume that the matrix is symmetric.
+        
+    control_conditions : Dict(Str, Dict(Str, Any))
+        Occasionally, you'll need to specify the experimental conditions that
+        the bleedthrough tubes were collected under (to apply the operations in the 
+        history.)  Specify them here.  The key is the channel name; they value
+        is a dictionary of the conditions (same as you would specify for a
+        :class:`~.Tube` )
 
     Examples
     --------
@@ -149,6 +156,7 @@ class BleedthroughLinearOp(HasStrictTraits):
     controls = Dict(Str, File)
     controls_frames = Dict(Str, Instance(DataFrame))
     spillover = Dict(Tuple(Str, Str), Float)
+    control_conditions = Dict(Str, Dict(Str, Any), {})
     
     _sample = Dict(Str, Any, transient = True)
     
@@ -183,19 +191,33 @@ class BleedthroughLinearOp(HasStrictTraits):
         for channel in channels:
             ex_channels = {experiment.metadata[c]["fcs_name"] : c for c in experiment.channels}
             name_metadata = experiment.metadata['name_metadata']
+            tube_conditions = self.control_conditions[channel] if channel in self.control_conditions else {}
+            exp_conditions = {k: experiment.data[k].dtype.name for k in tube_conditions.keys()}
             if ( self.controls != {} ):
                 # make a little Experiment
                 check_tube(self.controls[channel], experiment)
-                tube_exp = ImportOp(tubes = [Tube(file = self.controls[channel])],
+                tube_exp = ImportOp(tubes = [Tube(file = self.controls[channel],
+                                                  conditions = tube_conditions)],
+                                    conditions = exp_conditions,
                                     channels = ex_channels,
                                     name_metadata = name_metadata).apply()
             else:
-                tube_exp = ImportOp(tubes = [Tube(frame = self.controls_frames[channel])],
+                tube_exp = ImportOp(tubes = [Tube(frame = self.controls_frames[channel],
+                                                  conditions = tube_conditions)],
+                                    conditions = exp_conditions,
                                     channels = ex_channels,
                                     name_metadata = name_metadata).apply()
 
+
             # apply previous operations
             for op in experiment.history:
+                if hasattr(op, 'by'):
+                    for by in op.by:
+                        if 'experiment' in experiment.metadata[by]:
+                            raise util.CytoflowOpError('experiment',
+                                                       "Prior to applying this operation, "
+                                                       "you must not apply any operation with 'by' "
+                                                       "set to an experimental condition.")
                 tube_exp = op.apply(tube_exp)
                 
             # subset it
@@ -428,8 +450,8 @@ class BleedthroughLinearDiagnostic(HasStrictTraits):
                 plt.subplot(num_channels, 
                             num_channels, 
                             from_idx + (to_idx * num_channels) + 1)
-                plt.xscale(scale_name, **xscale.mpl_params)
-                plt.yscale(scale_name, **yscale.mpl_params)
+                plt.xscale(scale_name, **xscale.get_mpl_params(plt.gca().get_xaxis()))
+                plt.yscale(scale_name, **yscale.get_mpl_params(plt.gca().get_yaxis()))
                 plt.xlabel(from_channel)
                 plt.ylabel(to_channel)
                 plt.scatter(tube_data[from_channel],

@@ -36,6 +36,14 @@ non-fluorescent, and that the module found the population median.
 
     The FCS file containing measurements of blank cells.
     
+.. note::
+
+    You cannot have any operations before this one which estimate model
+    parameters based on experimental conditions.  (Eg, you can't use a
+    **Density Gate** to choose morphological parameters and set *by* to an
+    experimental condition.)  If you need this functionality, you can access it 
+    using the Python module interface.
+    
 .. plot::
 
     import cytoflow as flow
@@ -128,8 +136,23 @@ class AutofluorescencePluginOp(PluginOpMixin, AutofluorescenceOp):
                           "used to estimate the model?",
                           util.CytoflowOpWarning)
             
-        super().estimate(experiment, subset = self.subset)
-        self.changed = (Changed.ESTIMATE_RESULT, self)
+        # check for experiment metadata used to estimate operations in the
+        # history, and bail if we find any
+        for op in experiment.history:
+            if hasattr(op, 'by'):
+                for by in op.by:
+                    if 'experiment' in experiment.metadata[by]:
+                        raise util.CytoflowOpError('experiment',
+                                                   "Prior to applying this operation, "
+                                                   "you must not apply any operation with 'by' "
+                                                   "set to an experimental condition.")
+        
+        try:
+            super().estimate(experiment, subset = self.subset)
+        except:
+            raise
+        finally:
+            self.changed = (Changed.ESTIMATE_RESULT, self)
         
         
     def clear_estimate(self):

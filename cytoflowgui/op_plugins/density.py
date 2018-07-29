@@ -166,8 +166,12 @@ class DensityGatePluginOp(PluginOpMixin, DensityGateOp):
         return DensityGatePluginView(op = self, **kwargs)
     
     def estimate(self, experiment):
-        super().estimate(experiment, subset = self.subset)
-        self.changed = (Changed.ESTIMATE_RESULT, self)
+        try:
+            super().estimate(experiment, subset = self.subset)
+        except:
+            raise
+        finally:
+            self.changed = (Changed.ESTIMATE_RESULT, self)
     
     def clear_estimate(self):
         self._xscale = self._yscale = None
@@ -316,6 +320,10 @@ def _load(data, version):
 def _dump_view(view):
     return dict(op = view.op,
                 plot_params = view.plot_params)
+    
+@camel_registry.dumper(DensityGatePluginView, 'density-gate-view', version = 1)
+def _dump_view_v1(view):
+    return dict(op = view.op)
 
 @camel_registry.loader('density-gate-view', version = any)
 def _load_view(data, ver):
