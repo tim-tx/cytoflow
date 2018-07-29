@@ -350,6 +350,7 @@ class ImportOp(HasStrictTraits):
             channels = list(self.channels.keys()) if self.channels else list(self.tubes[0].frame)
             meta_channels = DataFrame()
             experiment.metadata["name_metadata"] = None
+            tube0_meta = {}
 
         # now that we have the metadata, load it into experiment
 
@@ -423,7 +424,7 @@ class ImportOp(HasStrictTraits):
                  
 #         import sys;sys.path.append(r'/home/brian/.p2/pool/plugins/org.python.pydev_6.1.0.201711051306/pysrc')
 #         import pydevd;pydevd.settrace()
-                        
+        
         for channel in channels:
             if self.channels and channel in self.channels:
                 new_name = self.channels[channel]
@@ -434,38 +435,39 @@ class ImportOp(HasStrictTraits):
                 experiment.metadata[new_name]["fcs_name"] = channel
                 del experiment.metadata[channel]
               
+            if (self.tubes[0].file):
             # this catches an odd corner case where some instruments store
-            # instrument-specific info in the "extra" bits.  we have to
-            # clear them out.
-            if tube0_meta['$DATATYPE'] == 'I':
-                data_bits  = int(meta_channels.loc[channel]['$PnB'])
-                data_range = float(meta_channels.loc[channel]['$PnR'])
-                range_bits = int(math.log(data_range, 2))
-                
-                if range_bits < data_bits:
-                    mask = 1
-                    for _ in range(1, range_bits):
-                        mask = mask << 1 | 1
+                # instrument-specific info in the "extra" bits.  we have to
+                # clear them out.
+                if '$DATATYPE' in tube0_meta and tube0_meta['$DATATYPE'] == 'I':
+                    data_bits  = int(meta_channels.loc[channel]['$PnB'])
+                    data_range = float(meta_channels.loc[channel]['$PnR'])
+                    range_bits = int(math.log(data_range, 2))
 
-                    experiment.data[channel] = experiment.data[channel].values.astype('int') & mask
-                
-            # re-scale the data to linear if if's recorded as log-scaled with
-            # integer channels
-            data_range = float(meta_channels.loc[channel]['$PnR'])
-            f1 = float(meta_channels.loc[channel]['$PnE'][0])
-            f2 = float(meta_channels.loc[channel]['$PnE'][1])
-            
-            if f1 > 0.0 and f2 == 0.0:
-                warnings.warn('Invalid $PnE = {},{} for channel {}, changing it to {},1.0'
-                              .format(f1, f2, channel, f1),
-                              util.CytoflowWarning)
-                f2 = 1.0
-                
-            if f1 > 0.0 and f2 > 0.0 and tube0_meta['$DATATYPE'] == 'I':
-                warnings.warn('Converting channel {} from logarithmic to linear'
-                              .format(channel),
-                              util.CytoflowWarning)
-#                 experiment.data[channel] = 10 ** (f1 * experiment.data[channel] / data_range) * f2
+                    if range_bits < data_bits:
+                        mask = 1
+                        for _ in range(1, range_bits):
+                            mask = mask << 1 | 1
+
+                        experiment.data[channel] = experiment.data[channel].values.astype('int') & mask
+
+                # re-scale the data to linear if if's recorded as log-scaled with
+                # integer channels
+                data_range = float(meta_channels.loc[channel]['$PnR'])
+                f1 = float(meta_channels.loc[channel]['$PnE'][0])
+                f2 = float(meta_channels.loc[channel]['$PnE'][1])
+
+                if f1 > 0.0 and f2 == 0.0:
+                    warnings.warn('Invalid $PnE = {},{} for channel {}, changing it to {},1.0'
+                                  .format(f1, f2, channel, f1),
+                                  util.CytoflowWarning)
+                    f2 = 1.0
+
+                if f1 > 0.0 and f2 > 0.0 and tube0_meta['$DATATYPE'] == 'I':
+                    warnings.warn('Converting channel {} from logarithmic to linear'
+                                  .format(channel),
+                                  util.CytoflowWarning)
+    #                 experiment.data[channel] = 10 ** (f1 * experiment.data[channel] / data_range) * f2
 
 
         return experiment
