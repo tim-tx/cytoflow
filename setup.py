@@ -71,7 +71,7 @@ setup(
                         'bottleneck==1.2.1',
                         'numexpr==2.6.5',
                         'scipy==1.1.0',
-                        'scikit-learn==0.19.1',
+                        'scikit-learn==0.19.2',
                         'seaborn==0.8.1',
                         'traits==4.6.0',
                         'pyface==6.0.0',
