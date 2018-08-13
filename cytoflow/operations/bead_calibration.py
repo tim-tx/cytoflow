@@ -229,8 +229,8 @@ class BeadCalibrationOp(HasStrictTraits):
         if experiment is None:
             raise util.CytoflowOpError('experiment', "No experiment specified")
         
-        if not self.beads_file and not self.beads_frame:
-            raise util.CytoflowOpError('beads_file', "No beads file specified")
+        if not self.beads_file and self.beads_frame is None:
+            raise util.CytoflowOpError('beads_file', "No beads file or frame specified")
 
         if not set(self.units.keys()) <= set(experiment.channels):
             raise util.CytoflowOpError('units',
