@@ -215,24 +215,26 @@ class ColorTranslationOp(HasStrictTraits):
                                            .format(from_channel, to_channel))
                 
             tube_file_or_frame = controls[(from_channel, to_channel)]
+            tube_file_or_frame_key = (from_channel, to_channel)
             tube_conditions = self.control_conditions[(from_channel, to_channel)] \
                                     if (from_channel, to_channel) in self.control_conditions \
                                     else {}
             conditions = {k: experiment.data[k].dtype.name for k in tube_conditions.keys()}
             
-            if tube_file_or_frame not in tubes:
+            if tube_file_or_frame_key not in tubes:
+            # if True:
                 channels = {experiment.metadata[c]["fcs_name"] : c for c in experiment.channels}
                 name_metadata = experiment.metadata['name_metadata']
                 if (self.controls != {}):
                     # make a little Experiment
-                    check_tube(tube_file_or_frame, experiment)
-                    tube_exp = ImportOp(tubes = [Tube(file = tube_file_or_frame,
+                    check_tube(controls[tube_file_or_frame_key], experiment)
+                    tube_exp = ImportOp(tubes = [Tube(file = controls[tube_file_or_frame_key],
                                                       conditions = tube_conditions)],
                                         conditions = conditions,
                                         channels = channels,
                                         name_metadata = name_metadata).apply()
                 else:
-                    tube_exp = ImportOp(tubes = [Tube(frame = tube_file_or_frame,
+                    tube_exp = ImportOp(tubes = [Tube(frame = controls[tube_file_or_frame_key],
                                                       conditions = tube_conditions)],
                                         conditions = conditions,
                                         channels = channels,
@@ -265,10 +267,10 @@ class ColorTranslationOp(HasStrictTraits):
                 
                 tube_data = tube_exp.data    
 
-                tubes[tube_file_or_frame] = tube_data
+                tubes[tube_file_or_frame_key] = tube_data
 
                 
-            data = tubes[tube_file_or_frame][[from_channel, to_channel]].copy()
+            data = tubes[tube_file_or_frame_key][[from_channel, to_channel]].copy()
             data = data[data[from_channel] > 0]
             data = data[data[to_channel] > 0]
             
