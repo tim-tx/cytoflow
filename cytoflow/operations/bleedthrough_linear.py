@@ -240,7 +240,7 @@ class BleedthroughLinearOp(HasStrictTraits):
             tube_data.sort_values(channel, inplace = True)
             
             # save a little of the data to plot later
-            self._sample[channel] = tube_data.sample(n = 1000)
+            self._sample[channel] = tube_data.sample(n = 100)
 
             from_channel = channel
             
