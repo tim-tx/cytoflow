@@ -29,6 +29,8 @@ import matplotlib.pyplot as plt
 import sklearn.mixture
 import scipy.optimize
 
+from sklearn.metrics import r2_score
+
 import cytoflow.views
 import cytoflow.utility as util
 
@@ -37,6 +39,7 @@ from .import_op import Tube, ImportOp, check_tube
 
 from pandas import DataFrame
 from ..experiment import Experiment
+
 
 @provides(IOperation)
 class ColorTranslationOp(HasStrictTraits):
@@ -276,8 +279,8 @@ class ColorTranslationOp(HasStrictTraits):
             
             _ = data.reset_index(drop = True, inplace = True)
             
-            self._sample[(from_channel, to_channel)] = data.sample(n = 5000)
-            
+            # self._sample[(from_channel, to_channel)] = data
+            self._sample[(from_channel, to_channel)] = data.sample(n = 100)            
             data[from_channel] = np.log10(data[from_channel])
             data[to_channel] = np.log10(data[to_channel])
             
@@ -497,9 +500,10 @@ class ColorTranslationDiagnostic(HasStrictTraits):
             plt.ylabel(to_channel)
             plt.xlim(from_min, from_max)
             plt.ylim(to_min, to_max)
+            # plt.ylim(to_max, to_min)
             
-            kwargs.setdefault('alpha', 0.2)
-            kwargs.setdefault('s', 1)
+            # kwargs.setdefault('alpha', 0.2)
+            kwargs.setdefault('s', 50)
             kwargs.setdefault('marker', 'o')
             
             plt.scatter(data[from_channel],
@@ -509,8 +513,17 @@ class ColorTranslationDiagnostic(HasStrictTraits):
             xs = np.logspace(1, math.log(data[from_channel].max(), 2), num = 256, base = 2)
             trans_fn = self.op._trans_fn[(from_channel, to_channel)]
             plt.plot(xs, trans_fn(xs), "--g")
-            
+
+            y = data[to_channel]
+            yhat = trans_fn(data[from_channel])
+
+
+            rsq = r2_score(y, yhat)
+
+            ax = plt.gca()
+            plt.text(0.8,0.2,r'$R^2 = %.2f$' % rsq,ha='center',va='center',transform=ax.transAxes)
             
             plt_idx = plt_idx + 1
         
-        plt.tight_layout(pad = 0.8)
+        # plt.tight_layout(pad = 0.8)
+        # plt.tight_layout()
