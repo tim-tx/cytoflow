@@ -360,7 +360,8 @@ class ImportOp(HasStrictTraits):
             experiment.metadata[channel]["fcs_name"] = channel
             
             if (not tube.file):
-                experiment.metadata[channel]['range'] = 65535
+                # experiment.metadata[channel]['range'] = 65535*2
+                experiment.metadata[channel]['range'] = 1e6
 
             if (list(meta_channels)):
                 # keep track of the channel's PMT voltage
