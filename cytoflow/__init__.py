@@ -1,7 +1,8 @@
 #!/usr/bin/env python3.4
 # coding: latin-1
 
-# (c) Massachusetts Institute of Technology 2015-2017
+# (c) Massachusetts Institute of Technology 2015-2018
+# (c) Brian Teague 2018-2019
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -26,9 +27,12 @@ import warnings
 warnings.filterwarnings('ignore', '.*IPython widgets are experimental.*')
 warnings.filterwarnings('ignore', 'axes.color_cycle is deprecated and replaced with axes.prop_cycle')
 
-# set seaborn defaults
-import seaborn
-seaborn.set()
+# ... and from SciPy (fixed in scipy HEAD, remove when ver > 1.1.1)
+warnings.filterwarnings('ignore', 'Using a non-tuple sequence for multidimensional indexing is deprecated.*')
+
+# keep track of whether we're running in the GUI.
+# there is the occasional place where we differ in behavior
+RUNNING_IN_GUI = False
 
 # basics
 from .experiment import Experiment

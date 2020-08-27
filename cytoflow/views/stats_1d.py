@@ -1,7 +1,8 @@
 #!/usr/bin/env python3.4
 # coding: latin-1
 
-# (c) Massachusetts Institute of Technology 2015-2017
+# (c) Massachusetts Institute of Technology 2015-2018
+# (c) Brian Teague 2018-2019
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -247,7 +248,7 @@ def _v_error_bars(x, y, yerr, ax = None, color = None, errwidth = None, capsize 
     if errwidth is not None:
         kwargs.setdefault("lw", errwidth)
     else:
-        kwargs.setdefault("lw", mpl.rcParams["lines.linewidth"] * 1.8)
+        kwargs.setdefault("lw", mpl.rcParams["lines.linewidth"])
     
     if isinstance(yerr.iloc[0], tuple):
         lo = [ye[0] for ye in yerr]
@@ -283,7 +284,7 @@ def _h_error_bars(x, y, xerr, ax = None, color = None, errwidth = None, capsize 
     if errwidth is not None:
         kwargs.setdefault("lw", errwidth)
     else:
-        kwargs.setdefault("lw", mpl.rcParams["lines.linewidth"] * 1.8)
+        kwargs.setdefault("lw", mpl.rcParams["lines.linewidth"])
     
     if isinstance(xerr.iloc[0], tuple):
         lo = [xe[0] for xe in xerr]

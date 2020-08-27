@@ -1,7 +1,8 @@
 #!/usr/bin/env python3.4
 # coding: latin-1
 
-# (c) Massachusetts Institute of Technology 2015-2017
+# (c) Massachusetts Institute of Technology 2015-2018
+# (c) Brian Teague 2018-2019
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -161,6 +162,11 @@ class ChannelStatisticOp(HasStrictTraits):
         if not self.name:
             raise util.CytoflowOpError('name', "Must specify a name")
         
+        if self.name != util.sanitize_identifier(self.name):
+            raise util.CytoflowOpError('name',
+                                       "Name can only contain letters, numbers and underscores."
+                                       .format(self.name))  
+        
         if not self.channel:
             raise util.CytoflowOpError('channel', "Must specify a channel")
 
@@ -242,7 +248,7 @@ class ChannelStatisticOp(HasStrictTraits):
                                            .format(group)) from e
             
             # check for, and warn about, NaNs.
-            if stat.loc[list(group)].isna().any():
+            if pd.Series(stat.loc[group]).isna().any():
                 warn("Found NaN in category {} returned {}"
                      .format(group, stat.loc[group]), 
                      util.CytoflowOpWarning)

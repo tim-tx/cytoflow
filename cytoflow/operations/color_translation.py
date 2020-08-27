@@ -1,7 +1,8 @@
 #!/usr/bin/env python3.4
 # coding: latin-1
 
-# (c) Massachusetts Institute of Technology 2015-2017
+# (c) Massachusetts Institute of Technology 2015-2018
+# (c) Brian Teague 2018-2019
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -279,8 +280,9 @@ class ColorTranslationOp(HasStrictTraits):
             
             _ = data.reset_index(drop = True, inplace = True)
             
-            # self._sample[(from_channel, to_channel)] = data
-            self._sample[(from_channel, to_channel)] = data.sample(n = 100)            
+            # self._sample[(from_channel, to_channel)] = data.sample(n = min(len(data), 5000))
+            self._sample[(from_channel, to_channel)] = data.sample(n = min(len(data), 100))
+            
             data[from_channel] = np.log10(data[from_channel])
             data[to_channel] = np.log10(data[to_channel])
             
@@ -485,6 +487,7 @@ class ColorTranslationDiagnostic(HasStrictTraits):
                 _ = plt.hist(data[from_channel],
                              bins = hist_bins,
                              histtype = 'stepfilled',
+                             linewidth = 0,
                              antialiased = True)
                 plt.xlabel(from_channel)
                     
@@ -512,16 +515,18 @@ class ColorTranslationDiagnostic(HasStrictTraits):
 
             xs = np.logspace(1, math.log(data[from_channel].max(), 2), num = 256, base = 2)
             trans_fn = self.op._trans_fn[(from_channel, to_channel)]
-            plt.plot(xs, trans_fn(xs), "--g")
+            # plt.plot(xs, trans_fn(xs), "--g")
 
-            y = data[to_channel]
-            yhat = trans_fn(data[from_channel])
+            # y = data[to_channel]
+            # yhat = trans_fn(data[from_channel])
 
 
-            rsq = r2_score(y, yhat)
+            # rsq = r2_score(y, yhat)
 
-            ax = plt.gca()
-            plt.text(0.8,0.2,r'$R^2 = %.2f$' % rsq,ha='center',va='center',transform=ax.transAxes)
+            # ax = plt.gca()
+            # plt.text(0.8,0.2,r'$R^2 = %.2f$' % rsq,ha='center',va='center',transform=ax.transAxes)
+            plt.plot(xs, trans_fn(xs), "--r")
+            
             
             plt_idx = plt_idx + 1
         

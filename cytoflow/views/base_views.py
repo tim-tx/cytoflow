@@ -1,7 +1,8 @@
 #!/usr/bin/env python3.4
 # coding: latin-1
 
-# (c) Massachusetts Institute of Technology 2015-2017
+# (c) Massachusetts Institute of Technology 2015-2018
+# (c) Brian Teague 2018-2019
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -31,6 +32,7 @@ import pandas as pd
 
 from warnings import warn
 
+import cytoflow
 import cytoflow.utility as util
 from .i_view import IView
 
@@ -83,6 +85,12 @@ class BaseView(HasStrictTraits):
         sharex, sharey : bool
             If there are multiple subplots, should they share axes?  Defaults
             to `True`.
+            
+        height : float
+            The height of *each row* in inches.  Default = 3.0
+            
+        aspect : float
+            The aspect ratio *of each subplot*.  Default = 1.5
 
         col_wrap : int
             If `xfacet` is set and `yfacet` is not set, you can "wrap" the
@@ -137,21 +145,33 @@ class BaseView(HasStrictTraits):
         sharex = kwargs.pop("sharex", True)
         sharey = kwargs.pop("sharey", True)
         
+        height = kwargs.pop("height", 3)
+        aspect = kwargs.pop("aspect", 1.5)
+        
         legend = kwargs.pop('legend', True)
-        
-        sns_style = kwargs.pop('sns_style', 'whitegrid')
-        sns_context = kwargs.pop('sns_context', 'talk')
+
         despine = kwargs.pop('despine', False)
-        
-        cols = col_wrap if col_wrap else \
-               len(data[self.xfacet].unique()) if self.xfacet else 1
                
-        sns.set_style(sns_style)
-        sns.set_context(sns_context)
+        if cytoflow.RUNNING_IN_GUI:
+            sns_style = kwargs.pop('sns_style', 'whitegrid')
+            sns_context = kwargs.pop('sns_context', 'talk')
+            sns.set_style(sns_style, rc = {"xtick.bottom": True, "ytick.left": True})
+            sns.set_context(sns_context)
+        else:
+            if 'sns_style' in kwargs:
+                kwargs.pop('sns_style')
+                warn("'sns_style' is ignored when not running in the GUI",
+                     util.CytoflowViewWarning)
+                
+            if 'sns_context' in kwargs:
+                kwargs.pop('sns_context')
+                warn("'sns_context' is ignored when not running in the GUI",
+                     util.CytoflowViewWarning)
+                
             
         g = sns.FacetGrid(data, 
-                          size = 6 / cols,
-                          aspect = 1.5,
+                          height = height,
+                          aspect = aspect,
                           col = (self.xfacet if self.xfacet else None),
                           row = (self.yfacet if self.yfacet else None),
                           hue = (self.huefacet if self.huefacet else None),
@@ -251,18 +271,9 @@ class BaseView(HasStrictTraits):
                     ax = g.axes.flat[0]
                     legend = ax.legend_
                     self._update_legend(legend)
-#                     for lh in legend.legendHandles:
-#                         lh.set_facecolor(lh.get_facecolor())  # i don't know why
-#                         lh.set_edgecolor(lh.get_edgecolor())  # these are needed
-#                         lh.set_alpha(1.0)
                         
         if title:
-            if self.xfacet or self.yfacet:
-                plt.subplots_adjust(top=0.9)
-            else:
-                plt.subplots_adjust(top=0.94)
-                
-            plt.suptitle(title)
+            plt.title(title)
             
         if xlabel == "":
             xlabel = None

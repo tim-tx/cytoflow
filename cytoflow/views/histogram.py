@@ -1,7 +1,8 @@
 #!/usr/bin/env python3.4
 # coding: latin-1
 
-# (c) Massachusetts Institute of Technology 2015-2017
+# (c) Massachusetts Institute of Technology 2015-2018
+# (c) Brian Teague 2018-2019
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -163,10 +164,13 @@ class HistogramView(Base1DView):
         else:
             xmin = bottleneck.nanmin(scaled_data)
             xmax = bottleneck.nanmax(scaled_data)
-            bins = scale.inverse(np.linspace(xmin, xmax, num=num_bins, endpoint = True))
+            bins = scale.inverse(np.linspace(xmin, xmax, num=int(num_bins), endpoint = True))
                     
         kwargs.setdefault('bins', bins) 
         kwargs.setdefault('orientation', 'vertical')
+        
+        if ('linewidth' not in kwargs) or ('linewidth' in kwargs and kwargs['linewidth'] is None):
+            kwargs['linewidth'] = 0 if kwargs['histtype'] == "stepfilled" else 2
         
         # if we have a hue facet, the y scaling is frequently wrong.  this
         # will capture the maximum bin count of each call to plt.hist, so 

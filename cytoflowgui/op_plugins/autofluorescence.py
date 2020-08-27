@@ -1,7 +1,8 @@
 #!/usr/bin/env python3.4
 # coding: latin-1
 
-# (c) Massachusetts Institute of Technology 2015-2017
+# (c) Massachusetts Institute of Technology 2015-2018
+# (c) Brian Teague 2018-2019
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -57,6 +58,7 @@ non-fluorescent, and that the module found the population median.
 
     af_op.estimate(ex)
     af_op.default_view().plot(ex) 
+
 '''
 import warnings
 
@@ -267,3 +269,4 @@ def _dump_view(view):
 @camel_registry.loader('autofluorescence-view', version = 1)
 def _load_view(data, version):
     return AutofluorescencePluginView(**data)
+

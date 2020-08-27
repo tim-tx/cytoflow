@@ -1,7 +1,8 @@
 #!/usr/bin/env python3.4
 # coding: latin-1
 
-# (c) Massachusetts Institute of Technology 2015-2017
+# (c) Massachusetts Institute of Technology 2015-2018
+# (c) Brian Teague 2018-2019
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -68,7 +69,7 @@ def not_false ( value ):
 def sanitize_metadata(meta):
     ret = {}
     for k, v in meta.items():
-        if k[0] == '$':
+        if len(k) > 0 and k[0] == '$':
             k = k[1:]
         k = util.sanitize_identifier(k)
         ret[k] = v

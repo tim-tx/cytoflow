@@ -1,7 +1,8 @@
 #!/usr/bin/env python3.4
 # coding: latin-1
 
-# (c) Massachusetts Institute of Technology 2015-2017
+# (c) Massachusetts Institute of Technology 2015-2018
+# (c) Brian Teague 2018-2019
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -319,14 +320,19 @@ class OpHandlerMixin(HasTraits):
             pal = QtGui.QPalette(item.palette())  # @UndefinedVariable
             
             if err_state:
+                # TODO - this worked in Qt4 but not in Qt5.  at least on linux,
+                # the color isn't changing.  i wonder if it has to do with the
+                # fixed theme engine we're using...
                 setattr(item, 
                         '_ok_color', 
                         QtGui.QColor(pal.color(item.backgroundRole())))  # @UndefinedVariable
                 pal.setColor(item.backgroundRole(), QtGui.QColor(255, 145, 145))  # @UndefinedVariable
                 item.setAutoFillBackground(True)
                 item.setPalette(pal)
+                item.repaint()
             else:
                 pal.setColor(item.backgroundRole(), item._ok_color)
                 delattr(item, '_ok_color')
                 item.setAutoFillBackground(False)
                 item.setPalette(pal)
+                item.repaint()

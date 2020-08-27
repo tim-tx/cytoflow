@@ -1,7 +1,8 @@
 #!/usr/bin/env python3.4
 # coding: latin-1
 
-# (c) Massachusetts Institute of Technology 2015-2017
+# (c) Massachusetts Institute of Technology 2015-2018
+# (c) Brian Teague 2018-2019
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -243,10 +244,11 @@ class DensityGatePluginView(PluginViewMixin, DensityGateView):
         """
         Should the owning WorkflowItem refresh the plot when certain things
         change?  `changed` can be:
-         - Changed.VIEW -- the view's parameters changed
-         - Changed.RESULT -- this WorkflowItem's result changed
-         - Changed.PREV_RESULT -- the previous WorkflowItem's result changed
-         - Changed.ESTIMATE_RESULT -- the results of calling "estimate" changed
+        - Changed.VIEW -- the view's parameters changed
+        - Changed.RESULT -- this WorkflowItem's result changed
+        - Changed.PREV_RESULT -- the previous WorkflowItem's result changed
+        - Changed.ESTIMATE_RESULT -- the results of calling "estimate" changed
+
         """
         if changed == Changed.RESULT:
             return False

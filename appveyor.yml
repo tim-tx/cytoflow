@@ -11,12 +11,13 @@ environment:
     # Pre-installed Python versions, which Appveyor may upgrade to
     # a later point release.
 
-    - PYTHON: "C:\\Miniconda35"
-      PYTHON_VERSION: "3.5.x"   # currently 3.5.2
-      PYTHON_ARCH: "32"
+    # disable 32-bit build
+    #- PYTHON: "C:\\Miniconda36"
+    #  PYTHON_VERSION: "3.6.x"   # currently 3.5.2
+    #  PYTHON_ARCH: "32"
 
-    - PYTHON: "C:\\Miniconda35-x64"
-      PYTHON_VERSION: "3.5.x"       # currently 3.5.2
+    - PYTHON: "C:\\Miniconda36-x64"
+      PYTHON_VERSION: "3.6.x"       # currently 3.5.2
       PYTHON_ARCH: "64"
 
 init:
@@ -50,14 +51,14 @@ install:
   # Set up conda recipe variables
   - IF "%APPVEYOR_REPO_TAG%"=="true" (set CONDA_TAG=%APPVEYOR_REPO_TAG_NAME%) ELSE (set CONDA_TAG=dev)
   - IF "%APPVEYOR_REPO_TAG%"=="true" (set CONDA_BUILD_NUMBER=%APPVEYOR_BUILD_NUMBER%) ELSE (set CONDA_BUILD_NUMBER=0)
-  - set CONDA_BUILD_STRING=py35_win%PYTHON_ARCH%_%CONDA_BUILD_NUMBER%
+  - set CONDA_BUILD_STRING=py36_win%PYTHON_ARCH%_%CONDA_BUILD_NUMBER%
   
   # Build the conda package
   - conda render packaging\conda_recipes\cytoflow
   - "%WITH_COMPILER% conda build packaging\\conda_recipes\\cytoflow"
   
   # Install the new package locally
-  - conda create --yes --quiet --name=cytoflow python=3.5.4
+  - conda create --yes --quiet --name=cytoflow python=3.6.10
   - activate cytoflow
   - conda install --yes --quiet --use-local --only-deps cytoflow
   - "%WITH_COMPILER% python setup.py develop"
@@ -70,7 +71,7 @@ install:
 #  - "python -c \"import struct; print(struct.calcsize('P') * 8)\""
   
   # - conda install --yes --quiet mkl=2017.0.3-0  # new version of mkl has bad interaction with numpy
-  - conda install --yes --quiet msvc_runtime pip mock
+  - conda install --yes --quiet pip
 
   # Install test requirements
   - pip.exe install nose2 
@@ -82,29 +83,33 @@ test_script:
 
 after_test:
   # Install packaging requirements
-  - pip.exe install "sphinx==1.7.5"
-  - pip.exe install "pyinstaller==3.3.1"
+  - conda install --yes --quiet sphinx openssl pywin32
+
+  - pip.exe install "pyinstaller==3.6"
   
   # Build PyPI packages
   - "python setup.py build_sphinx -b embedded_help"
   - "python setup.py bdist_wheel"
   
   # Build one-click
-  - "pyinstaller packaging/pyinstaller.spec"
-  - "pyi-archive_viewer -l dist\\cytoflow.exe"
+  - "python packaging\\pyinstaller-local.py packaging\\pyinstaller.spec"
+  - '"C:\Program Files (x86)\NSIS\makensis.exe" /NOCD packaging\installer.nsis'
   - set CONDA_TAG
   - set PYTHON_ARCH
   - dir dist
-  - "IF %PYTHON_ARCH% EQU 32 move dist\\cytoflow.exe dist\\cytoflow-%CONDA_TAG%-win32.exe"
-  - "IF %PYTHON_ARCH% EQU 64 move dist\\cytoflow.exe dist\\cytoflow-%CONDA_TAG%-win-amd64.exe"
-  - IF "%APPVEYOR_REPO_TAG%"=="false" python packaging\rename.py cytoflow-.*?(cp35.*whl) cytoflow-dev-\1 dist\*.whl
+  - "IF %PYTHON_ARCH% EQU 32 move dist\\cytoflow-installer.exe dist\\cytoflow-installer-%CONDA_TAG%-win32.exe"
+  - "IF %PYTHON_ARCH% EQU 64 move dist\\cytoflow-installer.exe dist\\cytoflow-installer-%CONDA_TAG%-win-amd64.exe"
+  - IF "%APPVEYOR_REPO_TAG%"=="false" python packaging\rename.py cytoflow-.*?(cp36.*whl) cytoflow-dev-\1 dist\*.whl
   
   # Move conda package to dist folder
   - deactivate
   - python packaging\move_conda_package.py
   
-  - "IF %PYTHON_ARCH% EQU 32 move build\\lib.win32-3.5\\cytoflow\\utility\\logicle_ext\\_Logicle*.pyd dist\\"
-  - "IF %PYTHON_ARCH% EQU 64 move build\\lib.win-amd64-3.5\\cytoflow\\utility\\logicle_ext\\_Logicle*.pyd dist\\"
+  - "IF %PYTHON_ARCH% EQU 32 move build\\lib.win32-3.6\\cytoflow\\utility\\logicle_ext\\_Logicle*.pyd dist\\"
+  - "IF %PYTHON_ARCH% EQU 64 move build\\lib.win-amd64-3.6\\cytoflow\\utility\\logicle_ext\\_Logicle*.pyd dist\\"
+  
+  # remove the dist exe directory
+  - rmdir /S /Q dist\cytoflow
 
 on_success:
 # from https://github.com/theochem/python-cython-ci-example/blob/master/.appveyor.yml

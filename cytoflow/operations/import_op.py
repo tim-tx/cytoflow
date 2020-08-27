@@ -1,7 +1,8 @@
 #!/usr/bin/env python3.4
 # coding: latin-1
 
-# (c) Massachusetts Institute of Technology 2015-2017
+# (c) Massachusetts Institute of Technology 2015-2018
+# (c) Brian Teague 2018-2019
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -415,12 +416,19 @@ class ImportOp(HasStrictTraits):
                 tube_meta['CF_Row'] = pos[0]
                 tube_meta['CF_Col'] = int(pos[1:3])
                 
-            # remove the PnV tube metadata
             for i, channel in enumerate(channels):
+                # remove the PnV tube metadata
+
                 if '$P{}V'.format(i+1) in tube_meta:
                     del tube_meta['$P{}V'.format(i+1)]
-
+                    
+                # work around a bug where the PnR is sometimes not the detector range
+                # but the data range.
+                pnr = '$P{}R'.format(i+1)
+                if pnr in tube_meta and float(tube_meta[pnr]) > experiment.metadata[channel]['range']:
+                    experiment.metadata[channel]['range'] = float(tube_meta[pnr])
             
+                
             tube_meta['CF_File'] = Path(tube.file).stem
                              
             experiment.metadata['fcs_metadata'][tube.file] = tube_meta

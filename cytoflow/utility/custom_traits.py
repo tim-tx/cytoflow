@@ -1,7 +1,8 @@
 #!/usr/bin/env python3.4
 # coding: latin-1
 
-# (c) Massachusetts Institute of Technology 2015-2017
+# (c) Massachusetts Institute of Technology 2015-2018
+# (c) Brian Teague 2018-2019
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -26,9 +27,11 @@ Custom traits for :class:`~cytoflow`
 from warnings import warn
 import inspect
 
-from traits.api import (BaseInt, BaseCInt, BaseFloat, BaseCFloat, BaseEnum, TraitType)
+from traits.api import (BaseInt, BaseCInt, BaseFloat, BaseCFloat, BaseEnum, TraitType, ValidateTrait)
 from . import scale
 from . import CytoflowError, CytoflowWarning
+
+import cytoflow
 
 
 class PositiveInt(BaseInt):
@@ -153,15 +156,15 @@ class ScaleEnum(BaseEnum):
         """
         self.name = ''
         self.values = list(scale._scale_mapping.keys())
-        self.init_fast_validator( 5, self.values )
+        #self.init_fast_validate(ValidateTrait.enum, self.values )
         super(BaseEnum, self).__init__(scale._scale_default, **metadata )
         
-    def get_default_value(self):
-        # this is so silly.  get_default_value is ... called once?  as traits
-        # sets up?  idunno.  anyways, instead of returning _scale_default, we
-        # need to return a reference to a function that returns _scale_Default.
-        
-        return (7, (self._get_default_value, (), None))
+    #def get_default_value(self):
+    #    # this is so silly.  get_default_value is ... called once?  as traits
+    #    # sets up?  idunno.  anyways, instead of returning _scale_default, we
+    #    # need to return a reference to a function that returns _scale_Default.
+    #    
+    #    return (7, (self._get_default_value, (), None))
     
     def _get_default_value(self):
         return scale._scale_default
@@ -180,16 +183,14 @@ class Removed(TraitType):
             Otherwise, raise an exception.
         
     """
-    
-    gui = False
-    
+        
     def __init__(self, **metadata):
         metadata.setdefault('err_string', 'Trait {} has been removed')
         metadata.setdefault('transient', True)
         super().__init__(**metadata)
     
     def get(self, obj, name):
-        if not self.gui:
+        if not cytoflow.RUNNING_IN_GUI:
             # TODO - this is quite slow.  come up with a better way.
             curframe = inspect.currentframe()
             calframe = inspect.getouterframes(curframe)
@@ -202,7 +203,7 @@ class Removed(TraitType):
                 raise CytoflowError(self.err_string.format(name))
     
     def set(self, obj, name, value):
-        if not self.gui:
+        if not cytoflow.RUNNING_IN_GUI:
             curframe = inspect.currentframe()
             calframe = inspect.getouterframes(curframe, 2)
             if calframe[1][3] == "copy_traits":
@@ -227,7 +228,6 @@ class Deprecated(TraitType):
         - **gui** : if ``True``, don't return a backtrace (because it's very slow)
 
     """
-    gui = False
     
     def __init__(self, **metadata):
         metadata.setdefault('err_string', 'Trait {} is deprecated; please use {}')
@@ -235,7 +235,7 @@ class Deprecated(TraitType):
         super().__init__(**metadata)
       
     def get(self, obj, name):
-        if not self.gui:
+        if not cytoflow.RUNNING_IN_GUI:
             curframe = inspect.currentframe()
             calframe = inspect.getouterframes(curframe)
             if calframe[1][3] != "copy_traits" and calframe[1][3] != 'trait_get':
@@ -244,7 +244,7 @@ class Deprecated(TraitType):
         return getattr(obj, self.new)
     
     def set(self, obj, name, value):
-        if not self.gui:
+        if not cytoflow.RUNNING_IN_GUI:
             curframe = inspect.currentframe()
             calframe = inspect.getouterframes(curframe)
             if calframe[1][3] != "copy_traits":

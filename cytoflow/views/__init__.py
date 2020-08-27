@@ -1,7 +1,8 @@
 #!/usr/bin/env python3.4
 # coding: latin-1
 
-# (c) Massachusetts Institute of Technology 2015-2017
+# (c) Massachusetts Institute of Technology 2015-2018
+# (c) Brian Teague 2018-2019
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -17,10 +18,16 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import matplotlib as mpl
+import matplotlib.pyplot as plt
 import seaborn as sns
 
+# set seaborn defaults.  this is mostly for the Jupyter notebook;
+# these settings can be overridden in the GUI
+sns.set(context = "paper", style = "whitegrid", 
+        rc = {"xtick.bottom": True, "ytick.left": True})
+
 # the default marker scales are tiny!  make them less tiny
-mpl.rc('legend', markerscale = 5)
+mpl.rc('legend', markerscale = 4)
 
 from .i_view import IView
 from .i_selectionview import ISelectionView

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3.4
 # coding: latin-1
 
-# (c) Massachusetts Institute of Technology 2015-2017
+# (c) Massachusetts Institute of Technology 2015-2018
+# (c) Brian Teague 2018-2019
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -90,7 +91,9 @@ class FlowTask(Task):
                               id='File', name='&File'),
                         SMenu(TaskToggleGroup(),
                               id = 'View', name = '&View'),
-                        SMenu(TaskAction(name = 'Report a problem....',
+                        SMenu(TaskAction(name = 'Online documentation...',
+                                         method = 'on_docs'),
+                                         TaskAction(name = 'Report a problem....',
                                          method = 'on_problem'),
                               TaskAction(name='About...',
                                          method='on_about'),
@@ -244,6 +247,26 @@ class FlowTask(Task):
         
         try:
             new_workflow = load_yaml(path)
+
+            # a few things to take care of when reloading.
+            # we do this in the try block to catch people who
+            # load valid YAML files that aren't from cytoflow.
+            
+            for wi_idx, wi in enumerate(new_workflow):
+                
+                # get wi lock
+                wi.lock.acquire()
+                
+                # clear the wi status
+                wi.status = "loading"
+    
+                # re-link the linked list.
+                if wi_idx > 0:
+                    wi.previous_wi = new_workflow[wi_idx - 1]
+                
+                if wi_idx < len(new_workflow) - 1:
+                    wi.next_wi = new_workflow[wi_idx + 1]
+
         except yaml.parser.ParserError as e:
             error(None,
                   "Parser error loading {} -- is it a Cytoflow file?\n\n{}"
@@ -251,26 +274,10 @@ class FlowTask(Task):
             return
         except Exception as e:
             error(None,
-                  "{} loading {}: {}"
+                  "{} loading {} -- is it a Cytoflow file?\n\n{}"
                   .format(e.__class__.__name__, path, str(e)))
             return
         
-        # a few things to take care of when reloading
-        for wi_idx, wi in enumerate(new_workflow):
-            
-            # get wi lock
-            wi.lock.acquire()
-            
-            # clear the wi status
-            wi.status = "loading"
-
-            # re-link the linked list.
-            if wi_idx > 0:
-                wi.previous_wi = new_workflow[wi_idx - 1]
-            
-            if wi_idx < len(new_workflow) - 1:
-                wi.next_wi = new_workflow[wi_idx + 1]
-
         # check that the FCS files are all there
         
         wi = new_workflow[0]
@@ -398,12 +405,16 @@ class FlowTask(Task):
     def on_prefs(self):
         pass
     
+    def on_docs(self):
+        webbrowser.open_new_tab("https://cytoflow.readthedocs.io/en/stable/manual.html")
+
+    
     def on_problem(self):
 
         log = str(self._get_package_versions()) + "\n" + self.application.application_log.getvalue()
         
         msg = "The best way to report a problem is send an application log to " \
-              "the developers.  You can do so by either sending us an email " \
+              "the developer.  You can do so by either sending me an email " \
               "with the log in it, or saving the log to a file and filing a " \
               "new issue on GitHub at " \
               "https://github.com/bpteague/cytoflow/issues/new" 
@@ -456,7 +467,7 @@ PACKAGE VERSIONS: {0}
 DEBUG LOG: {1}
 """.format(versions, log)
 
-        mailto("teague@mit.edu", 
+        mailto("bpteague@gmail.com", 
                subject = "Cytoflow bug report",
                body = body)
     

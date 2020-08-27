@@ -1,7 +1,8 @@
 #!/usr/bin/env python3.4
 # coding: latin-1
 
-# (c) Massachusetts Institute of Technology 2015-2017
+# (c) Massachusetts Institute of Technology 2015-2018
+# (c) Brian Teague 2018-2019
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -552,10 +553,23 @@ class BeadCalibrationOp(HasStrictTraits):
               "MEBFP" :   [1957, 5579,  16005, 53621,  168302, 459809,  1581762, 4999251]}
         }
     )
+
     """
     A dictionary containing the calibrated beads that Cytoflow currently knows
     about.  The available bead sets, the fluorophores and the laser / filter 
     sets with which they were characterized are below:
+
+    - **Spherotech RCP-30-5A Lot AK02, AK03, AK04**
+      
+      - **MECSB** (Cascade Blue, 405 --> 450/50)
+      - **MEBFP** (BFP, 405 --> 530/40)
+      - **MEFL** (Fluroscein, 488 --> 530/40)
+      - **MEPE** (Phycoerythrin, 488 --> 575/25)
+      - **MEPTR** (PE-Texas Red, 488 --> 613/20)
+      - **MECY** (Cy5, 488 --> 680/30)
+      - **MEPCY7** (PE-Cy7, 488 --> 750 LP)
+      - **MEAP** (APC, 633 --> 665/20)
+      - **MEAPCY7** (APC-Cy7, 635 --> 750 LP)
     
     - **Spherotech RCP-30-5A Lot AG01, AF02, AD04 and AAE01**
       
@@ -581,7 +595,7 @@ class BeadCalibrationOp(HasStrictTraits):
       - **MEAP** (APC, 633 --> 665/20)
       - **MEAPCY7** (APC-Cy7, 635 --> 750 LP)      
       
-    - **Spherotech URCP-100-2H (9 peaks)
+    - **Spherotech URCP-100-2H (9 peaks)**
     
       - **MECSB** (Cascade Blue, 405 --> 450/50)
       - **MEBFP** (BFP, 405 --> 530/40)

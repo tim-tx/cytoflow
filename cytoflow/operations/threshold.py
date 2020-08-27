@@ -1,7 +1,8 @@
 #!/usr/bin/env python3.4
 # coding: latin-1
 
-# (c) Massachusetts Institute of Technology 2015-2017
+# (c) Massachusetts Institute of Technology 2015-2018
+# (c) Brian Teague 2018-2019
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -148,6 +149,11 @@ class ThresholdOp(HasStrictTraits):
             raise util.CytoflowOpError('name', 
                                        "You have to set the gate's name "
                                        "before applying it!")
+            
+        if self.name != util.sanitize_identifier(self.name):
+            raise util.CytoflowOpError('name',
+                                       "Name can only contain letters, numbers and underscores."
+                                       .format(self.name)) 
         
         # make sure old_experiment doesn't already have a column named self.name
         if(self.name in experiment.data.columns):

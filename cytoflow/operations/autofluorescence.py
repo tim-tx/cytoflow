@@ -1,7 +1,8 @@
 #!/usr/bin/env python3.4
 # coding: latin-1
 
-# (c) Massachusetts Institute of Technology 2015-2017
+# (c) Massachusetts Institute of Technology 2015-2018
+# (c) Brian Teague 2018-2019
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -354,7 +355,6 @@ class AutofluorescenceDiagnosticView(HasStrictTraits):
                                "parameter.  Did you forget to (re)run estimate()?")
         
         import matplotlib.pyplot as plt
-        import seaborn as sns  # @UnusedImport
         
         plt.figure()
         
@@ -364,7 +364,7 @@ class AutofluorescenceDiagnosticView(HasStrictTraits):
             bin_edges = bin_edges[1:-1]
             plt.subplot(len(self.op.channels), 1, idx+1)
             plt.title(channel)
-            plt.bar(bin_edges[:-1], hist, linewidth = 0, width = 10)
+            plt.bar(bin_edges[:-1], hist, width = bin_edges[2] - bin_edges[1], linewidth = 0)
             plt.axvline(self.op._af_median[channel], color = 'r')
             
         plt.tight_layout(pad = 0.8)

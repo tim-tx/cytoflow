@@ -1,7 +1,8 @@
 #!/usr/bin/env python3.4
 # coding: latin-1
 
-# (c) Massachusetts Institute of Technology 2015-2017
+# (c) Massachusetts Institute of Technology 2015-2018
+# (c) Brian Teague 2018-2019
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -423,37 +424,45 @@ class BleedthroughLinearDiagnostic(HasStrictTraits):
         kwargs.setdefault('histtype', 'stepfilled')
         kwargs.setdefault('alpha', 0.5)
         kwargs.setdefault('antialiased', True)
-         
-        plt.figure()
+        
+        fig, axes2d = plt.subplots(nrows=3, ncols=3)    
         
         # the completely arbitrary ordering of the channels
         channels = list(set([x for (x, _) in list(self.op.spillover.keys())]))
         num_channels = len(channels)
+
+        for to_idx, row in enumerate(axes2d):
+            for from_idx, ax in enumerate(row):
+                
+                plt.sca(ax)
+                
+                from_channel = channels[from_idx]
+                to_channel = channels[to_idx]
+                
+                if to_idx == len(axes2d) - 1 or (to_idx == len(axes2d) - 2 and from_idx == len(row) - 1):
+                    plt.xlabel(from_channel)
+                if from_idx == 0 or (from_idx == 1 and to_idx == 0):
+                    plt.ylabel(to_channel)
         
-        for from_idx, from_channel in enumerate(channels):
-            for to_idx, to_channel in enumerate(channels):
                 if from_idx == to_idx:
+                    ax.set_visible(False)
                     continue
                 
                 tube_data = self.op._sample[from_channel]
                 
                 # for ReadTheDocs, which doesn't have swig
                 import sys
-                if sys.modules['cytoflow.utility.logicle_ext.Logicle'].__name__ != 'cytoflow.utility.logicle_ext.Logicle':
-                    scale_name = 'log'
-                else:
+                if 'cytoflow.utility.logicle_ext.Logicle' in sys.modules:
                     scale_name = 'logicle'
+                else:
+                    scale_name = 'log'
                 
                 xscale = util.scale_factory(scale_name, experiment, channel = from_channel)
                 yscale = util.scale_factory(scale_name, experiment, channel = to_channel)
 
-                plt.subplot(num_channels, 
-                            num_channels, 
-                            from_idx + (to_idx * num_channels) + 1)
-                plt.xscale(scale_name, **xscale.get_mpl_params(plt.gca().get_xaxis()))
-                plt.yscale(scale_name, **yscale.get_mpl_params(plt.gca().get_yaxis()))
-                plt.xlabel(from_channel)
-                plt.ylabel(to_channel)
+                plt.xscale(scale_name, **xscale.get_mpl_params(ax.get_xaxis()))
+                plt.yscale(scale_name, **yscale.get_mpl_params(ax.get_yaxis()))
+
                 plt.scatter(tube_data[from_channel],
                             tube_data[to_channel],
                             alpha = 1,
@@ -464,5 +473,6 @@ class BleedthroughLinearDiagnostic(HasStrictTraits):
                 ys = xs * self.op.spillover[(from_channel, to_channel)]
           
                 plt.plot(xs, ys, 'g-', lw=3)
+
                 
         plt.tight_layout(pad = 0.8)

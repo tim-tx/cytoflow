@@ -1,7 +1,8 @@
 #!/usr/bin/env python3.4
 # coding: latin-1
 
-# (c) Massachusetts Institute of Technology 2015-2017
+# (c) Massachusetts Institute of Technology 2015-2018
+# (c) Brian Teague 2018-2019
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -57,6 +58,19 @@ def log_excepthook(typ, val, tb):
                   .format(typ, val, tb_str))
                          
 def run_gui():
+    import os, sys
+    try:
+       # if we're running as a one-click from a MacOS app,
+       # we need to reset the working directory
+       os.chdir(sys._MEIPASS)
+    except:
+       # if we're not running as a one-click, fail gracefully
+       pass
+   
+    # take care of the 3 places in the cytoflow module that
+    # need different behavior in a GUI
+    import cytoflow
+    cytoflow.RUNNING_IN_GUI = True
     
     # this is ridiculous, but here's the situation.  Qt5 now uses Chromium
     # as their web renderer.  Chromium needs OpenGL.  if you don't
@@ -97,8 +111,8 @@ def run_gui():
     
     # Make matplotlib to use our backend
     
-    import matplotlib
-    matplotlib.use('module://cytoflowgui.matplotlib_backend')
+    #import matplotlib
+    #matplotlib.use('module://cytoflowgui.matplotlib_backend_local')
     
     # getting real tired of the matplotlib deprecation warnings
     import warnings
@@ -122,23 +136,17 @@ def run_gui():
     # monkey patch checklist editor to stop lowercasing
     import traitsui.qt4.check_list_editor  # @UnusedImport
     traitsui.qt4.check_list_editor.capitalize = lambda s: s
-
-    # for some reason, the stack-checking code in Removed and Deprecated
-    # is really, really slow.  disable it.
-    from cytoflow.utility.custom_traits import Removed, Deprecated
-    Removed.gui = True
-    Deprecated.gui = True
     
     # define and install a message handler for Qt errors
     from traits.api import push_exception_handler
                              
-    def QtMsgHandler(msg_type, msg_string):
+    def QtMsgHandler(msg_type, msg_context, msg_string):
         # Convert Qt msg type to logging level
         log_level = [logging.DEBUG,
                      logging.WARN,
                      logging.ERROR,
                      logging.FATAL] [ int(msg_type) ]
-        logging.log(log_level, 'Qt message: ' + msg_string.decode('utf-8'))
+        logging.log(log_level, 'Qt message: ' + msg_string)
         
     from pyface.qt.QtCore import qInstallMessageHandler  # @UnresolvedImport
     qInstallMessageHandler(QtMsgHandler)
@@ -226,6 +234,10 @@ def run_gui():
                               remote_connection = remote_connection,
                               filename = args.filename,
                               debug = args.debug)
+
+    from pyface.qt import QtGui
+    QtGui.QApplication.instance().setStyle(QtGui.QStyleFactory.create('Fusion'))
+
     app.run()
     remote_process.join()
     logging.shutdown()
@@ -262,7 +274,7 @@ def remote_main(parent_workflow_conn, parent_mpl_conn, log_q, running_event):
     # remote process.  Must be called BEFORE cytoflow is imported
     
     import matplotlib
-    matplotlib.use('module://cytoflowgui.matplotlib_backend')
+    matplotlib.use('module://cytoflowgui.matplotlib_backend_remote')
     
     from traits.api import push_exception_handler    
     from cytoflowgui.workflow import RemoteWorkflow
@@ -273,6 +285,11 @@ def remote_main(parent_workflow_conn, parent_mpl_conn, log_q, running_event):
                            main = True)
     
     sys.excepthook = log_excepthook
+    
+    # take care of the 3 places in the cytoflow module that
+    # need different behavior in a GUI
+    import cytoflow
+    cytoflow.RUNNING_IN_GUI = True
     
     running_event.set()
     RemoteWorkflow().run(parent_workflow_conn, parent_mpl_conn, log_q)

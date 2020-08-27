@@ -1,7 +1,8 @@
 #!/usr/bin/env python3.4
 # coding: latin-1
 
-# (c) Massachusetts Institute of Technology 2015-2016
+# (c) Massachusetts Institute of Technology 2015-2018
+# (c) Brian Teague 2018-2019
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -316,6 +317,9 @@ class GaussianMixtureOp(HasStrictTraits):
             gmm.means_ = gmm.means_[sort_idx]
             gmm.weights_ = gmm.weights_[sort_idx]
             gmm.covariances_ = gmm.covariances_[sort_idx]
+            gmm.precisions_ = gmm.precisions_[sort_idx]
+            gmm.precisions_cholesky_ = gmm.precisions_cholesky_[sort_idx]
+
             
             gmms[group] = gmm
             
@@ -362,6 +366,11 @@ class GaussianMixtureOp(HasStrictTraits):
             raise util.CytoflowOpError('name',
                                        "You have to set the gate's name "
                                        "before applying it!")
+            
+        if self.name != util.sanitize_identifier(self.name):
+            raise util.CytoflowOpError('name',
+                                       "Name can only contain letters, numbers and underscores."
+                                       .format(self.name)) 
         
         if self.num_components > 1 and self.name in experiment.data.columns:
             raise util.CytoflowOpError('name',
@@ -519,11 +528,9 @@ class GaussianMixtureOp(HasStrictTraits):
                     
                     event_gate[c].iloc[group_idx] = np.less_equal(dist, thresh)
                     
-            if self.posteriors:
-#                 import sys;sys.path.append(r'/home/brian/.p2/pool/plugins/org.python.pydev_6.2.0.201711281614/pysrc')
-#                 import pydevd;pydevd.settrace()
-                
-                p = gmm.predict_proba(x)
+            if self.posteriors:  
+                p = np.full((len(x), self.num_components), 0.0)
+                p[~x_na] = gmm.predict_proba(x[~x_na])
                 for c in range(self.num_components):
                     event_posteriors[c].iloc[group_idx] = p[:, c]
                     

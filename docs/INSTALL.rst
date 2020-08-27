@@ -54,7 +54,7 @@ Installing from the ``Anaconda Navigator``
     If Python doesn't complain, you're good to go.  (If it does, please submit 
     a bug report!)
   
-* **Note: When you install ``cytoflow`` this way, the point-and-click 
+* **Note: When you install Cytoflow this way, the point-and-click 
   application is installed as well.**  Launching it from the 
   ``Anaconda Navigator`` will be significantly faster than downloading the
   pre-packaged binary.
@@ -121,28 +121,25 @@ the appropriate file.
 
     conda config --add channels bpteague
 
-* Create a new environment.  In this example, I have called it ``cf_dev``::
+* Clone the repository::
 
-    conda create --name cf_dev
+    git clone https://github.com/bpteague/cytoflow.git
+
+* Create a new environment.  In this example, I have called it ``cf_dev``.
+  In the new repository you just cloned, say::
+
+    conda env create --name cf_dev --file environment.yml
   
 * Activate the new environment
 
   * On Windows::
     
-    conda activate cf_dev
+      conda activate cf_dev
     
   * On Mac, Linux or Windows running bash:: 
     
-    source activate cf_dev
+      source activate cf_dev
   
-* Install ``cytoflow``'s dependencies::
-
-    conda install --only-deps cytoflow
-    
-* Clone the repository::
-
-    git clone https://github.com/bpteague/cytoflow.git
-    
 * **On Windows and MacOS only,** do the following to prevent ``cytoflow``
   from trying to build the C++ extension.
   
@@ -161,9 +158,9 @@ the appropriate file.
 * From the `GitHub releases page <https://github.com/bpteague/cytoflow/releases>`_ 
   download the appropriate extension file for the version you're installing.
   
-  * **On Windows (32-bit)**: ``_Logicle.cp35-win32.pyd``
-  * **On Windows (64-bit)**: ``_Logicle.cp35-win_amd64.pyd``
-  * **On MacOS**: ``_Logicle.cpython-35m-darwin.so``
+  * **On Windows (32-bit)**: ``_Logicle.cp36-win32.pyd``
+  * **On Windows (64-bit)**: ``_Logicle.cp36-win_amd64.pyd``
+  * **On MacOS**: ``_Logicle.cpython-36m-darwin.so``
   
 * Copy the file you just download into the `cytoflow/utility/logicle_ext/` folder
   in your source tree.
