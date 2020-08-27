@@ -203,6 +203,8 @@ class BeadCalibrationOp(HasStrictTraits):
     bead_brightness_threshold = Float(100.0)
     bead_brightness_cutoff = util.FloatOrNone(None)
     bead_histogram_bins = Int(512)
+
+    beads_n_subsets_search = Bool(True)
     
     # TODO - bead_brightness_threshold should probably be different depending
     # on the data range of the input.
@@ -340,6 +342,10 @@ class BeadCalibrationOp(HasStrictTraits):
                 self._mefs[channel] = [mef[-2], mef[-1]]
                 a = (mef[-1] - mef[-2]) / (peaks[1] - peaks[0])
                 self._calibration_functions[channel] = lambda x, a=a: a * x
+            # elif len(peaks) >= 2 and not self.beads_n_subsets_search:
+            #     self._mefs[channel] = mef[-len(peaks):]
+            #     a = (mef[-1] - mef[-2]) / (peaks[-1] - peaks[-2])
+            #     self._calibration_functions[channel] = lambda x, a=a: a * x
             else:
                 # if there are n > 2 peaks, check all the contiguous n-subsets
                 # of mef for the one whose linear regression with the peaks
@@ -349,7 +355,13 @@ class BeadCalibrationOp(HasStrictTraits):
                 # have an outsized influence.
                                 
                 best_resid = np.inf
-                for start, end in [(x, x+len(peaks)) for x in range(len(mef) - len(peaks) + 1)]:
+
+                if self.beads_n_subsets_search:
+                    start_end = [(x, x+len(peaks)) for x in range(len(mef) - len(peaks) + 1)]
+                else:
+                    start_end = [(len(mef) - len(peaks), len(mef)), ]
+
+                for start, end in start_end:
                     mef_subset = mef[start:end]
                     
                     # linear regression of the peak locations against mef subset
@@ -492,42 +504,54 @@ class BeadCalibrationOp(HasStrictTraits):
             if hasattr(sys.modules['sys'], 'IN_SPHINX'):
                 return None
             return super().__repr__()
-    
+
     BEADS = _Beads(
-    {
-     # from http://www.spherotech.com/RCP-30-5a%20%20rev%20H%20ML%20071712.xls
-     "Spherotech RCP-30-5A Lot AG01, AF02, AD04 and AAE01" :
-        { "MECSB" :   [216,   464,   1232,   2940,  7669,  19812,  35474],
-          "MEBFP" :   [861,   1997,  5776,   15233, 45389, 152562, 396759],
-          "MEFL" :    [792,   2079,  6588,   16471, 47497, 137049, 271647],
-          "MEPE" :    [531,   1504,  4819,   12506, 36159, 109588, 250892],
-          "MEPTR" :   [233,   669,   2179,   5929,  18219, 63944,  188785],
-          "MECY" :    [1614,  4035,  12025,  31896, 95682, 353225, 1077421],
-          "MEPCY7" :  [14916, 42336, 153840, 494263],
-          "MEAP" :    [373,   1079,  3633,   9896,  28189, 79831,  151008],
-          "MEAPCY7" : [2864,  7644,  19081,  37258]},
-     # from http://www.spherotech.com/RCP-30-5a%20%20rev%20G.2.xls
-     "Spherotech RCP-30-5A Lot AA01-AA04, AB01, AB02, AC01, GAA01-R":
-        { "MECSB" :   [179,   400,    993,   3203,  6083,  17777,  36331],
-          "MEBFP" :   [700,   1705,   4262,  17546, 35669, 133387, 412089],
-          "MEFL" :    [692,   2192,   6028,  17493, 35674, 126907, 290983],
-          "MEPE" :    [505,   1777,   4974,  13118, 26757, 94930,  250470],
-          "MEPTR" :   [207,   750,    2198,  6063,  12887, 51686,  170219],
-          "MECY" :    [1437,  4693,   12901, 36837, 76621, 261671, 1069858],
-          "MEPCY7" :  [32907, 107787, 503797],
-          "MEAP" :    [587,   2433,   6720,  17962, 30866, 51704,  146080],
-          "MEAPCY7" : [718,   1920,   5133,  9324,  14210, 26735]},
-    "Spherotech URCP-100-2H (9 peaks)":
         {
-          "MEFL" :    [3531, 11373, 34643, 107265, 324936, 835306,  2517654, 6069240],
-          "MEPE" :    [2785, 9525,  28421, 90313,  275589, 713181,  2209251, 5738784],
-          "MEPTR" :   [1158, 4161,  12528, 41140,  130347, 344149,  1091393, 2938710],
-          "MEPCY" :   [6501, 20302, 59517, 183870, 550645, 1569470, 5109318, 17854584],
-          "MEPCY7" :  [4490, 10967, 30210, 87027,  283621, 975312,  4409101, 24259524],
-          "MEAP" :    [369,  749,   3426,  10413,  50013,  177490,  500257,  1252120],
-          "MEAPCY7" : [1363, 2656,  9791,  25120,  96513,  328967,  864905,  2268931],
-          "MECSB" :   [989,  2959,  8277,  25524,  71603,  173069,  491388,  1171641],
-          "MEBFP" :   [1957, 5579,  16005, 53621,  168302, 459809,  1581762, 4999251]}})
+            # from http://www.spherotech.com/RCP-30-5A%20%20Rev%20K%20ML%23%20073112%20Rev.%20B.xls
+            "Spherotech RCP-30-5A Lot AK02, AK03, AK04" :
+            { "MECSB" :   [205,   470,   1211,   2740,  7516,  20122,  35573],
+              "MEBFP" :   [844,   1958,  5422,   13522, 42717, 153501, 420359],
+              "MEFL"  :   [771,   2106,  6262,   15183, 45292, 136258, 291042],
+              "MEPE"  :   [487,   1474,  4516,   11260, 34341, 107608, 260461],
+              "MEPTR" :   [205,   643,   2021,   5278,  17018, 62451,  198933],
+              "MECY"  :   [1414,  3809,  10852,  27904, 85866, 324106, 1040895],
+              "MECY7" :   [12752, 39057, 142958, 448890],
+              "MEAP"  :   [341,   1027,  3156,   7750,  23446, 68702,  116813],
+              "MEAPCY7" : [173,   427,   1097,   2399,  6359,  17475,  30725]},
+            # from http://www.spherotech.com/RCP-30-5a%20%20rev%20H%20ML%20071712.xls
+            "Spherotech RCP-30-5A Lot AG01, AF02, AD04 and AAE01" :
+            { "MECSB" :   [216,   464,   1232,   2940,  7669,  19812,  35474],
+              "MEBFP" :   [861,   1997,  5776,   15233, 45389, 152562, 396759],
+              "MEFL" :    [792,   2079,  6588,   16471, 47497, 137049, 271647],
+              "MEPE" :    [531,   1504,  4819,   12506, 36159, 109588, 250892],
+              "MEPTR" :   [233,   669,   2179,   5929,  18219, 63944,  188785],
+              "MECY" :    [1614,  4035,  12025,  31896, 95682, 353225, 1077421],
+              "MEPCY7" :  [14916, 42336, 153840, 494263],
+              "MEAP" :    [373,   1079,  3633,   9896,  28189, 79831,  151008],
+              "MEAPCY7" : [2864,  7644,  19081,  37258]},
+            # from http://www.spherotech.com/RCP-30-5a%20%20rev%20G.2.xls
+            "Spherotech RCP-30-5A Lot AA01-AA04, AB01, AB02, AC01, GAA01-R":
+            { "MECSB" :   [179,   400,    993,   3203,  6083,  17777,  36331],
+              "MEBFP" :   [700,   1705,   4262,  17546, 35669, 133387, 412089],
+              "MEFL" :    [692,   2192,   6028,  17493, 35674, 126907, 290983],
+              "MEPE" :    [505,   1777,   4974,  13118, 26757, 94930,  250470],
+              "MEPTR" :   [207,   750,    2198,  6063,  12887, 51686,  170219],
+              "MECY" :    [1437,  4693,   12901, 36837, 76621, 261671, 1069858],
+              "MEPCY7" :  [32907, 107787, 503797],
+              "MEAP" :    [587,   2433,   6720,  17962, 30866, 51704,  146080],
+              "MEAPCY7" : [718,   1920,   5133,  9324,  14210, 26735]},
+            "Spherotech URCP-100-2H (9 peaks)":
+            { "MEFL" :    [3531, 11373, 34643, 107265, 324936, 835306,  2517654, 6069240],
+              "MEPE" :    [2785, 9525,  28421, 90313,  275589, 713181,  2209251, 5738784],
+              "MEPTR" :   [1158, 4161,  12528, 41140,  130347, 344149,  1091393, 2938710],
+              "MEPCY" :   [6501, 20302, 59517, 183870, 550645, 1569470, 5109318, 17854584],
+              "MEPCY7" :  [4490, 10967, 30210, 87027,  283621, 975312,  4409101, 24259524],
+              "MEAP" :    [369,  749,   3426,  10413,  50013,  177490,  500257,  1252120],
+              "MEAPCY7" : [1363, 2656,  9791,  25120,  96513,  328967,  864905,  2268931],
+              "MECSB" :   [989,  2959,  8277,  25524,  71603,  173069,  491388,  1171641],
+              "MEBFP" :   [1957, 5579,  16005, 53621,  168302, 459809,  1581762, 4999251]}
+        }
+    )
     """
     A dictionary containing the calibrated beads that Cytoflow currently knows
     about.  The available bead sets, the fluorophores and the laser / filter 
