@@ -122,6 +122,7 @@ class AutofluorescenceOp(HasStrictTraits):
     blank_file = File(exists = True)
     blank_frame = Instance(DataFrame)
     blank_file_conditions = Dict({})
+    bins = Array()
 
     _af_median = Dict(Str, Float, transient = True)
     _af_stdev = Dict(Str, Float, transient = True)
@@ -208,7 +209,12 @@ class AutofluorescenceOp(HasStrictTraits):
                                       .format(subset))
         
         for channel in self.channels:
-            self._af_histogram[channel] = np.histogram(blank_exp[channel], bins = 250)
+            if self.bins.any():
+                bins = self.bins
+            else:
+                bins = 250
+
+            self._af_histogram[channel] = np.histogram(blank_exp[channel], bins = bins)
             
             channel_min = blank_exp[channel].quantile(0.025)
             channel_max = blank_exp[channel].quantile(0.975)
